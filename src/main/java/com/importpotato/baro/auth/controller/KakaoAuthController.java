@@ -1,5 +1,6 @@
 package com.importpotato.baro.auth.controller;
 
+import com.importpotato.baro.auth.dto.KakaoLoginResult;
 import com.importpotato.baro.auth.dto.KakaoLoginResponse;
 import com.importpotato.baro.auth.service.KakaoAuthService;
 import lombok.RequiredArgsConstructor;
@@ -34,8 +35,10 @@ public class KakaoAuthController {
     public ResponseEntity<KakaoLoginResponse> handleKakaoCallback(
             @RequestParam String code
     ) {
-        KakaoLoginResponse loginResponse = kakaoAuthService.loginWithAuthorizationCode(code);
+        KakaoLoginResult loginResult = kakaoAuthService.loginWithAuthorizationCode(code);
+        HttpStatus status = loginResult.registered() ? HttpStatus.CREATED : HttpStatus.OK;
 
-        return ResponseEntity.ok(loginResponse);
+        return ResponseEntity.status(status)
+                .body(loginResult.response());
     }
 }

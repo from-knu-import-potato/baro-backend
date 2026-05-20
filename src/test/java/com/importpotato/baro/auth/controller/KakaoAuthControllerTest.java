@@ -4,6 +4,7 @@ import com.importpotato.baro.auth.client.KakaoTokenClient;
 import com.importpotato.baro.auth.client.KakaoUserInfoClient;
 import com.importpotato.baro.auth.repository.KakaoUserRepository;
 import com.importpotato.baro.auth.service.KakaoAuthService;
+import com.importpotato.baro.auth.service.KakaoUserRegistrationService;
 import com.importpotato.baro.auth.support.KakaoOAuthProperties;
 import com.importpotato.baro.config.SecurityConfig;
 import org.junit.jupiter.api.Test;
@@ -39,6 +40,9 @@ class KakaoAuthControllerTest {
 
     @MockitoBean
     private KakaoUserRepository kakaoUserRepository;
+
+    @MockitoBean
+    private KakaoUserRegistrationService kakaoUserRegistrationService;
 
     @Test
     void requestKakaoLoginRedirectsToKakaoAuthorizationUri() throws Exception {

@@ -1,5 +1,6 @@
 package com.importpotato.baro.auth.controller;
 
+import com.importpotato.baro.auth.dto.KakaoLoginResult;
 import com.importpotato.baro.auth.dto.KakaoLoginResponse;
 import com.importpotato.baro.auth.dto.KakaoTokenResponse;
 import com.importpotato.baro.auth.dto.KakaoUserResponse;
@@ -31,9 +32,9 @@ class KakaoAuthCallbackControllerTest {
     private KakaoAuthService kakaoAuthService;
 
     @Test
-    void handleKakaoCallbackReturnsLoginResponse() throws Exception {
+    void handleKakaoCallbackReturnsOkForExistingUserLogin() throws Exception {
         given(kakaoAuthService.loginWithAuthorizationCode("authorize-code"))
-                .willReturn(new KakaoLoginResponse(
+                .willReturn(new KakaoLoginResult(new KakaoLoginResponse(
                         new KakaoTokenResponse(
                                 "bearer",
                                 "access-token",
@@ -53,7 +54,7 @@ class KakaoAuthCallbackControllerTest {
                                 Instant.parse("2026-05-21T00:00:00Z"),
                                 Instant.parse("2026-05-21T00:01:00Z")
                         )
-                ));
+                ), false));
 
         mockMvc.perform(get("/api/v1/auth/kakao/callback")
                         .param("code", "authorize-code"))
@@ -67,6 +68,37 @@ class KakaoAuthCallbackControllerTest {
                 .andExpect(jsonPath("$.user.kakaoId").value(123456789L))
                 .andExpect(jsonPath("$.user.email").value("user@example.com"))
                 .andExpect(jsonPath("$.user.nickname").value("baro"));
+    }
+
+    @Test
+    void handleKakaoCallbackReturnsCreatedForNewUserRegistration() throws Exception {
+        given(kakaoAuthService.loginWithAuthorizationCode("authorize-code"))
+                .willReturn(new KakaoLoginResult(new KakaoLoginResponse(
+                        new KakaoTokenResponse(
+                                "bearer",
+                                "access-token",
+                                null,
+                                43199,
+                                "refresh-token",
+                                5184000,
+                                "account_email profile"
+                        ),
+                        new KakaoUserResponse(
+                                1L,
+                                123456789L,
+                                "user@example.com",
+                                "baro",
+                                "https://example.com/thumb.jpg",
+                                "https://example.com/profile.jpg",
+                                Instant.parse("2026-05-21T00:00:00Z"),
+                                Instant.parse("2026-05-21T00:01:00Z")
+                        )
+                ), true));
+
+        mockMvc.perform(get("/api/v1/auth/kakao/callback")
+                        .param("code", "authorize-code"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.user.kakaoId").value(123456789L));
     }
 
     @Test

@@ -3,6 +3,7 @@ package com.importpotato.baro.auth.service;
 import com.importpotato.baro.auth.client.KakaoTokenClient;
 import com.importpotato.baro.auth.client.KakaoUserInfoClient;
 import com.importpotato.baro.auth.domain.KakaoUser;
+import com.importpotato.baro.auth.dto.KakaoLoginResult;
 import com.importpotato.baro.auth.dto.KakaoLoginResponse;
 import com.importpotato.baro.auth.dto.KakaoTokenResponse;
 import com.importpotato.baro.auth.dto.KakaoUserInfoResponse;
@@ -12,6 +13,7 @@ import com.importpotato.baro.auth.exception.KakaoUserInfoRequestException;
 import com.importpotato.baro.auth.exception.MissingKakaoOAuthConfigurationException;
 import com.importpotato.baro.auth.repository.KakaoUserRepository;
 import com.importpotato.baro.auth.support.KakaoOAuthProperties;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -26,17 +28,20 @@ public class KakaoAuthService {
     private final KakaoTokenClient kakaoTokenClient;
     private final KakaoUserInfoClient kakaoUserInfoClient;
     private final KakaoUserRepository kakaoUserRepository;
+    private final KakaoUserRegistrationService kakaoUserRegistrationService;
 
     public KakaoAuthService(
             KakaoOAuthProperties kakaoOAuthProperties,
             KakaoTokenClient kakaoTokenClient,
             KakaoUserInfoClient kakaoUserInfoClient,
-            KakaoUserRepository kakaoUserRepository
+            KakaoUserRepository kakaoUserRepository,
+            KakaoUserRegistrationService kakaoUserRegistrationService
     ) {
         this.kakaoOAuthProperties = kakaoOAuthProperties;
         this.kakaoTokenClient = kakaoTokenClient;
         this.kakaoUserInfoClient = kakaoUserInfoClient;
         this.kakaoUserRepository = kakaoUserRepository;
+        this.kakaoUserRegistrationService = kakaoUserRegistrationService;
     }
 
     public URI createAuthorizationRedirectUri(String state) {
@@ -61,7 +66,7 @@ public class KakaoAuthService {
     }
 
     @Transactional
-    public KakaoLoginResponse loginWithAuthorizationCode(String code) {
+    public KakaoLoginResult loginWithAuthorizationCode(String code) {
         if (!StringUtils.hasText(code)) {
             throw new InvalidKakaoAuthorizationCodeException();
         }
@@ -73,17 +78,24 @@ public class KakaoAuthService {
         }
 
         KakaoUserInfoResponse userInfo = kakaoUserInfoClient.requestUserInfo(tokenResponse.accessToken());
-        KakaoUser kakaoUser = upsertKakaoUser(userInfo);
+        LoginUser loginUser = loginOrRegister(userInfo);
 
-        return new KakaoLoginResponse(tokenResponse, KakaoUserResponse.from(kakaoUser));
+        return new KakaoLoginResult(
+                new KakaoLoginResponse(tokenResponse, KakaoUserResponse.from(loginUser.kakaoUser())),
+                loginUser.registered()
+        );
     }
 
-    private KakaoUser upsertKakaoUser(KakaoUserInfoResponse userInfo) {
-        KakaoUser kakaoUser = kakaoUserRepository.findByKakaoId(userInfo.id())
-                .orElseGet(() -> KakaoUser.from(userInfo));
+    private LoginUser loginOrRegister(KakaoUserInfoResponse userInfo) {
+        try {
+            return new LoginUser(kakaoUserRegistrationService.register(userInfo), true);
+        } catch (DataIntegrityViolationException exception) {
+            KakaoUser kakaoUser = kakaoUserRepository.findByKakaoId(userInfo.id())
+                    .orElseThrow(() -> exception);
 
-        kakaoUser.update(userInfo);
-        return kakaoUserRepository.save(kakaoUser);
+            kakaoUser.update(userInfo);
+            return new LoginUser(kakaoUser, false);
+        }
     }
 
     private void validateTokenRequestConfiguration() {
@@ -99,5 +111,11 @@ public class KakaoAuthService {
         if (!StringUtils.hasText(kakaoOAuthProperties.getUserInfoUri())) {
             throw new MissingKakaoOAuthConfigurationException("kakao.oauth.user-info-uri");
         }
+    }
+
+    private record LoginUser(
+            KakaoUser kakaoUser,
+            boolean registered
+    ) {
     }
 }
