@@ -29,6 +29,12 @@ public class GlobalExceptionHandler {
     public ProblemDetail handleKakaoTokenRequest(KakaoTokenRequestException exception) {
         ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_GATEWAY, exception.getMessage());
         problemDetail.setTitle("Kakao token request failed");
+        if (exception.getKakaoStatusCode() != null) {
+            problemDetail.setProperty("kakaoStatus", exception.getKakaoStatusCode().value());
+        }
+        if (exception.getKakaoResponseBody() != null && !exception.getKakaoResponseBody().isBlank()) {
+            problemDetail.setProperty("kakaoError", exception.getKakaoResponseBody());
+        }
         return problemDetail;
     }
 }

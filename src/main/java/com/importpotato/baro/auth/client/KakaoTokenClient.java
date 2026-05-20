@@ -44,7 +44,12 @@ public class KakaoTokenClient {
                     .retrieve()
                     .body(KakaoTokenResponse.class);
         } catch (RestClientResponseException exception) {
-            throw new KakaoTokenRequestException("카카오 토큰 요청에 실패했습니다.", exception);
+            throw new KakaoTokenRequestException(
+                    "카카오 토큰 요청에 실패했습니다.",
+                    exception.getStatusCode(),
+                    exception.getResponseBodyAsString(),
+                    exception
+            );
         } catch (RestClientException exception) {
             throw new KakaoTokenRequestException("카카오 토큰 서버와 통신할 수 없습니다.", exception);
         }
