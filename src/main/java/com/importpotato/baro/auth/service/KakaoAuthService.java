@@ -1,5 +1,6 @@
 package com.importpotato.baro.auth.service;
 
+import com.importpotato.baro.auth.exception.MissingKakaoOAuthConfigurationException;
 import com.importpotato.baro.auth.support.KakaoOAuthProperties;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -18,10 +19,10 @@ public class KakaoAuthService {
 
     public URI createAuthorizationRedirectUri(String state) {
         if (!StringUtils.hasText(kakaoOAuthProperties.getClientId())) {
-            throw new IllegalStateException("kakao.oauth.client-id 설정이 필요합니다.");
+            throw new MissingKakaoOAuthConfigurationException("kakao.oauth.client-id");
         }
         if (!StringUtils.hasText(kakaoOAuthProperties.getRedirectUri())) {
-            throw new IllegalStateException("kakao.oauth.redirect-uri 설정이 필요합니다.");
+            throw new MissingKakaoOAuthConfigurationException("kakao.oauth.redirect-uri");
         }
 
         UriComponentsBuilder uriBuilder = UriComponentsBuilder
