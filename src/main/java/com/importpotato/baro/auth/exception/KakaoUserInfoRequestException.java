@@ -2,18 +2,18 @@ package com.importpotato.baro.auth.exception;
 
 import org.springframework.http.HttpStatusCode;
 
-public class KakaoTokenRequestException extends RuntimeException {
+public class KakaoUserInfoRequestException extends RuntimeException {
 
     private final HttpStatusCode kakaoStatusCode;
     private final String kakaoResponseBody;
 
-    public KakaoTokenRequestException(String message, Throwable cause) {
+    public KakaoUserInfoRequestException(String message, Throwable cause) {
         super(message, cause);
         this.kakaoStatusCode = null;
         this.kakaoResponseBody = null;
     }
 
-    public KakaoTokenRequestException(String message, HttpStatusCode kakaoStatusCode, String kakaoResponseBody, Throwable cause) {
+    public KakaoUserInfoRequestException(String message, HttpStatusCode kakaoStatusCode, String kakaoResponseBody, Throwable cause) {
         super(message, cause);
         this.kakaoStatusCode = kakaoStatusCode;
         this.kakaoResponseBody = kakaoResponseBody;

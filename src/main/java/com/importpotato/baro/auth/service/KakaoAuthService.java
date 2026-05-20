@@ -1,11 +1,19 @@
 package com.importpotato.baro.auth.service;
 
 import com.importpotato.baro.auth.client.KakaoTokenClient;
+import com.importpotato.baro.auth.client.KakaoUserInfoClient;
+import com.importpotato.baro.auth.domain.KakaoUser;
+import com.importpotato.baro.auth.dto.KakaoLoginResponse;
 import com.importpotato.baro.auth.dto.KakaoTokenResponse;
+import com.importpotato.baro.auth.dto.KakaoUserInfoResponse;
+import com.importpotato.baro.auth.dto.KakaoUserResponse;
 import com.importpotato.baro.auth.exception.InvalidKakaoAuthorizationCodeException;
+import com.importpotato.baro.auth.exception.KakaoUserInfoRequestException;
 import com.importpotato.baro.auth.exception.MissingKakaoOAuthConfigurationException;
+import com.importpotato.baro.auth.repository.KakaoUserRepository;
 import com.importpotato.baro.auth.support.KakaoOAuthProperties;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 import org.springframework.web.util.UriComponentsBuilder;
 
@@ -16,10 +24,19 @@ public class KakaoAuthService {
 
     private final KakaoOAuthProperties kakaoOAuthProperties;
     private final KakaoTokenClient kakaoTokenClient;
+    private final KakaoUserInfoClient kakaoUserInfoClient;
+    private final KakaoUserRepository kakaoUserRepository;
 
-    public KakaoAuthService(KakaoOAuthProperties kakaoOAuthProperties, KakaoTokenClient kakaoTokenClient) {
+    public KakaoAuthService(
+            KakaoOAuthProperties kakaoOAuthProperties,
+            KakaoTokenClient kakaoTokenClient,
+            KakaoUserInfoClient kakaoUserInfoClient,
+            KakaoUserRepository kakaoUserRepository
+    ) {
         this.kakaoOAuthProperties = kakaoOAuthProperties;
         this.kakaoTokenClient = kakaoTokenClient;
+        this.kakaoUserInfoClient = kakaoUserInfoClient;
+        this.kakaoUserRepository = kakaoUserRepository;
     }
 
     public URI createAuthorizationRedirectUri(String state) {
@@ -43,13 +60,30 @@ public class KakaoAuthService {
         return uriBuilder.build(true).toUri();
     }
 
-    public KakaoTokenResponse exchangeAuthorizationCode(String code) {
+    @Transactional
+    public KakaoLoginResponse loginWithAuthorizationCode(String code) {
         if (!StringUtils.hasText(code)) {
             throw new InvalidKakaoAuthorizationCodeException();
         }
         validateTokenRequestConfiguration();
 
-        return kakaoTokenClient.requestToken(code);
+        KakaoTokenResponse tokenResponse = kakaoTokenClient.requestToken(code);
+        if (!StringUtils.hasText(tokenResponse.accessToken())) {
+            throw new KakaoUserInfoRequestException("카카오 액세스 토큰이 비어 있습니다.", null);
+        }
+
+        KakaoUserInfoResponse userInfo = kakaoUserInfoClient.requestUserInfo(tokenResponse.accessToken());
+        KakaoUser kakaoUser = upsertKakaoUser(userInfo);
+
+        return new KakaoLoginResponse(tokenResponse, KakaoUserResponse.from(kakaoUser));
+    }
+
+    private KakaoUser upsertKakaoUser(KakaoUserInfoResponse userInfo) {
+        KakaoUser kakaoUser = kakaoUserRepository.findByKakaoId(userInfo.id())
+                .orElseGet(() -> KakaoUser.from(userInfo));
+
+        kakaoUser.update(userInfo);
+        return kakaoUserRepository.save(kakaoUser);
     }
 
     private void validateTokenRequestConfiguration() {
@@ -61,6 +95,9 @@ public class KakaoAuthService {
         }
         if (!StringUtils.hasText(kakaoOAuthProperties.getTokenUri())) {
             throw new MissingKakaoOAuthConfigurationException("kakao.oauth.token-uri");
+        }
+        if (!StringUtils.hasText(kakaoOAuthProperties.getUserInfoUri())) {
+            throw new MissingKakaoOAuthConfigurationException("kakao.oauth.user-info-uri");
         }
     }
 }

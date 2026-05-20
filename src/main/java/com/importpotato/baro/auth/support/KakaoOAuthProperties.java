@@ -9,6 +9,7 @@ public class KakaoOAuthProperties {
 
     private String authorizationUri = "https://kauth.kakao.com/oauth/authorize";
     private String tokenUri = "https://kauth.kakao.com/oauth/token";
+    private String userInfoUri = "https://kapi.kakao.com/v2/user/me";
     private String clientId;
     private String clientSecret;
     private String redirectUri;
@@ -27,6 +28,14 @@ public class KakaoOAuthProperties {
 
     public void setTokenUri(String tokenUri) {
         this.tokenUri = tokenUri;
+    }
+
+    public String getUserInfoUri() {
+        return userInfoUri;
+    }
+
+    public void setUserInfoUri(String userInfoUri) {
+        this.userInfoUri = userInfoUri;
     }
 
     public String getClientId() {

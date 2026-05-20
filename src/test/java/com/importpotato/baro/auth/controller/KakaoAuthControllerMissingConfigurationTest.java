@@ -1,6 +1,8 @@
 package com.importpotato.baro.auth.controller;
 
 import com.importpotato.baro.auth.client.KakaoTokenClient;
+import com.importpotato.baro.auth.client.KakaoUserInfoClient;
+import com.importpotato.baro.auth.repository.KakaoUserRepository;
 import com.importpotato.baro.auth.service.KakaoAuthService;
 import com.importpotato.baro.auth.support.KakaoOAuthProperties;
 import com.importpotato.baro.config.SecurityConfig;
@@ -31,11 +33,17 @@ class KakaoAuthControllerMissingConfigurationTest {
     @MockitoBean
     private KakaoTokenClient kakaoTokenClient;
 
+    @MockitoBean
+    private KakaoUserInfoClient kakaoUserInfoClient;
+
+    @MockitoBean
+    private KakaoUserRepository kakaoUserRepository;
+
     @Test
     void requestKakaoLoginReturnsServiceUnavailableWhenClientIdIsMissing() throws Exception {
         mockMvc.perform(get("/api/v1/auth/kakao/login"))
                 .andExpect(status().isServiceUnavailable())
                 .andExpect(jsonPath("$.title").value("Kakao OAuth configuration is missing"))
-                .andExpect(jsonPath("$.detail").value("kakao.oauth.client-id 설정이 필요합니다."));
+                .andExpect(jsonPath("$.detail").value("kakao.oauth.client-id configuration is required."));
     }
 }

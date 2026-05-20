@@ -2,6 +2,7 @@ package com.importpotato.baro.common.exception;
 
 import com.importpotato.baro.auth.exception.InvalidKakaoAuthorizationCodeException;
 import com.importpotato.baro.auth.exception.KakaoTokenRequestException;
+import com.importpotato.baro.auth.exception.KakaoUserInfoRequestException;
 import com.importpotato.baro.auth.exception.MissingKakaoOAuthConfigurationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
@@ -29,6 +30,19 @@ public class GlobalExceptionHandler {
     public ProblemDetail handleKakaoTokenRequest(KakaoTokenRequestException exception) {
         ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_GATEWAY, exception.getMessage());
         problemDetail.setTitle("Kakao token request failed");
+        if (exception.getKakaoStatusCode() != null) {
+            problemDetail.setProperty("kakaoStatus", exception.getKakaoStatusCode().value());
+        }
+        if (exception.getKakaoResponseBody() != null && !exception.getKakaoResponseBody().isBlank()) {
+            problemDetail.setProperty("kakaoError", exception.getKakaoResponseBody());
+        }
+        return problemDetail;
+    }
+
+    @ExceptionHandler(KakaoUserInfoRequestException.class)
+    public ProblemDetail handleKakaoUserInfoRequest(KakaoUserInfoRequestException exception) {
+        ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_GATEWAY, exception.getMessage());
+        problemDetail.setTitle("Kakao user info request failed");
         if (exception.getKakaoStatusCode() != null) {
             problemDetail.setProperty("kakaoStatus", exception.getKakaoStatusCode().value());
         }

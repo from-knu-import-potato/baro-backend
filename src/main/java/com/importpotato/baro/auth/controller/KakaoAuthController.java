@@ -1,6 +1,6 @@
 package com.importpotato.baro.auth.controller;
 
-import com.importpotato.baro.auth.dto.KakaoTokenResponse;
+import com.importpotato.baro.auth.dto.KakaoLoginResponse;
 import com.importpotato.baro.auth.service.KakaoAuthService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -31,11 +31,11 @@ public class KakaoAuthController {
     }
 
     @GetMapping("/kakao/callback")
-    public ResponseEntity<KakaoTokenResponse> handleKakaoCallback(
+    public ResponseEntity<KakaoLoginResponse> handleKakaoCallback(
             @RequestParam String code
     ) {
-        KakaoTokenResponse tokenResponse = kakaoAuthService.exchangeAuthorizationCode(code);
+        KakaoLoginResponse loginResponse = kakaoAuthService.loginWithAuthorizationCode(code);
 
-        return ResponseEntity.ok(tokenResponse);
+        return ResponseEntity.ok(loginResponse);
     }
 }
