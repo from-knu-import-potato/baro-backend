@@ -22,7 +22,10 @@ public class SecurityConfig {
                 .requestCache(requestCache -> requestCache.disable())
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/api/v1/auth/kakao/login").permitAll()
+                        .requestMatchers(
+                                "/api/v1/auth/kakao/login",
+                                "/api/v1/auth/kakao/callback"
+                        ).permitAll()
                         .requestMatchers(
                                 "/error",
                                 "/swagger-ui/**",
