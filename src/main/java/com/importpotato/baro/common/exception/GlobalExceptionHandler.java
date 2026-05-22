@@ -4,6 +4,8 @@ import com.importpotato.baro.auth.exception.InvalidKakaoAuthorizationCodeExcepti
 import com.importpotato.baro.auth.exception.KakaoTokenRequestException;
 import com.importpotato.baro.auth.exception.KakaoUserInfoRequestException;
 import com.importpotato.baro.auth.exception.MissingKakaoOAuthConfigurationException;
+import com.importpotato.baro.store.exception.InvalidBusinessHoursException;
+import com.importpotato.baro.store.exception.StoreNotFoundException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -73,6 +75,20 @@ public class GlobalExceptionHandler {
                 "Request body is invalid. Check enum values and JSON format."
         );
         problemDetail.setTitle("Invalid request body");
+        return problemDetail;
+    }
+
+    @ExceptionHandler(StoreNotFoundException.class)
+    public ProblemDetail handleStoreNotFound(StoreNotFoundException exception) {
+        ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, exception.getMessage());
+        problemDetail.setTitle("Store not found");
+        return problemDetail;
+    }
+
+    @ExceptionHandler(InvalidBusinessHoursException.class)
+    public ProblemDetail handleInvalidBusinessHours(InvalidBusinessHoursException exception) {
+        ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, exception.getMessage());
+        problemDetail.setTitle("Invalid business hours");
         return problemDetail;
     }
 

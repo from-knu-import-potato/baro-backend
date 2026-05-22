@@ -28,8 +28,8 @@ public class SecurityConfig {
                                 "/api/v1/auth/kakao/login",
                                 "/api/v1/auth/kakao/callback"
                         ).permitAll()
-                        .requestMatchers(HttpMethod.POST, "/api/stores/basic-info").permitAll()
                         .requestMatchers(
+                                "/api/stores/**",
                                 "/error",
                                 "/swagger-ui/**",
                                 "/v3/api-docs/**",
