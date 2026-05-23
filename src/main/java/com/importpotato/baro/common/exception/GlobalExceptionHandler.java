@@ -4,6 +4,8 @@ import com.importpotato.baro.auth.exception.InvalidKakaoAuthorizationCodeExcepti
 import com.importpotato.baro.auth.exception.KakaoTokenRequestException;
 import com.importpotato.baro.auth.exception.KakaoUserInfoRequestException;
 import com.importpotato.baro.auth.exception.MissingKakaoOAuthConfigurationException;
+import com.importpotato.baro.menu.exception.InvalidMenuRequestException;
+import com.importpotato.baro.menu.exception.MenuNotFoundException;
 import com.importpotato.baro.store.exception.InvalidBusinessHoursException;
 import com.importpotato.baro.store.exception.StoreNotFoundException;
 import org.springframework.http.HttpStatus;
@@ -89,6 +91,20 @@ public class GlobalExceptionHandler {
     public ProblemDetail handleInvalidBusinessHours(InvalidBusinessHoursException exception) {
         ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, exception.getMessage());
         problemDetail.setTitle("Invalid business hours");
+        return problemDetail;
+    }
+
+    @ExceptionHandler(MenuNotFoundException.class)
+    public ProblemDetail handleMenuNotFound(MenuNotFoundException exception) {
+        ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, exception.getMessage());
+        problemDetail.setTitle("Menu not found");
+        return problemDetail;
+    }
+
+    @ExceptionHandler(InvalidMenuRequestException.class)
+    public ProblemDetail handleInvalidMenuRequest(InvalidMenuRequestException exception) {
+        ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, exception.getMessage());
+        problemDetail.setTitle("Invalid menu request");
         return problemDetail;
     }
 
