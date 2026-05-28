@@ -1,4 +1,5 @@
 HELP.md
+.env
 .gradle
 build/
 config/application-secret.yaml

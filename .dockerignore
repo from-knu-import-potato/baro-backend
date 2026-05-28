@@ -1,0 +1,14 @@
+.git
+.gradle
+.idea
+.vscode
+build
+out
+bin
+data
+*.mv.db
+*.trace.db
+config/application-secret.yaml
+Dockerfile
+docker-compose*.yml
+README.md
