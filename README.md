@@ -50,3 +50,32 @@ The container stores the default H2 database under `/app/data`, which is backed
 by the `baro-data` Docker volume. The local `config/` directory is mounted into
 the container as read-only so `config/application-secret.yaml` can be updated
 without rebuilding the image.
+
+## Render deployment
+
+Use the `prod` Spring profile on Render. The local profile is the default only
+for development.
+
+Set these Render environment variables:
+
+```text
+SPRING_PROFILES_ACTIVE=prod
+SPRING_DATASOURCE_URL=<production JDBC URL>
+SPRING_DATASOURCE_USERNAME=<production DB user>
+SPRING_DATASOURCE_PASSWORD=<production DB password>
+KAKAO_REST_API_KEY=<Kakao REST API key>
+KAKAO_CLIENT_SECRET=<Kakao client secret, if used>
+KAKAO_REDIRECT_URI=https://<render-service-domain>/api/v1/auth/kakao/callback
+OPENAI_API_KEY=<OpenAI API key, if OpenAI is enabled>
+JAVA_OPTS=-XX:MaxRAMPercentage=75.0 -XX:+UseContainerSupport
+```
+
+Render provides the `PORT` environment variable for web services. The `prod`
+profile maps that value to `server.port`, so do not hard-code the server port
+for Render.
+
+Configure the Render health check path as:
+
+```text
+/actuator/health
+```

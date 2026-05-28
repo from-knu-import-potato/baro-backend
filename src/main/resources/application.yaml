@@ -1,24 +1,10 @@
 spring:
   application:
     name: baro
+  profiles:
+    default: local
   config:
     import: optional:file:./config/application-secret.yaml
-  datasource:
-    url: jdbc:h2:file:./data/testdb
-    username: sa
-    password:
-    hikari:
-      maximum-pool-size: 10
-      minimum-idle: 2
-  h2:
-    console:
-      enabled: true
-      path: /h2-console
-  jpa:
-    hibernate:
-      ddl-auto: update
-    show-sql: true
-    open-in-view: false
   ai:
     model:
       chat: ${SPRING_AI_MODEL_CHAT:none}
