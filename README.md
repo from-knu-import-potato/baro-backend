@@ -4,7 +4,7 @@ BARO Backend
 
 ## Local configuration
 
-The application imports `./config/application-secret.yaml` when it exists.
+The `local` profile imports `./config/application-secret.yaml` when it exists.
 Copy `config/application-secret.example.yaml` to `config/application-secret.yaml`
 and set environment variables such as `OPENAI_API_KEY` and `KAKAO_REST_API_KEY`.
 
@@ -47,14 +47,17 @@ docker compose down
 ```
 
 The container stores the default H2 database under `/app/data`, which is backed
-by the `baro-data` Docker volume. The local `config/` directory is mounted into
-the container as read-only so `config/application-secret.yaml` can be updated
-without rebuilding the image.
+by the `baro-data` Docker volume. For local Docker usage, `.env` is loaded by
+Docker Compose and `config/application-secret.yaml` is available to the local
+profile as an optional override.
 
 ## Render deployment
 
 Use the `prod` Spring profile on Render. The local profile is the default only
 for development.
+
+Do not upload `.env` or `config/application-secret.yaml` to Render. Set Render
+Dashboard environment variables instead.
 
 Set these Render environment variables:
 
@@ -64,6 +67,7 @@ SPRING_DATASOURCE_URL=<production JDBC URL>
 SPRING_DATASOURCE_USERNAME=<production DB user>
 SPRING_DATASOURCE_PASSWORD=<production DB password>
 KAKAO_REST_API_KEY=<Kakao REST API key>
+# Alternatively, set KAKAO_CLIENT_ID instead of KAKAO_REST_API_KEY.
 KAKAO_CLIENT_SECRET=<Kakao client secret, if used>
 KAKAO_REDIRECT_URI=https://<render-service-domain>/api/v1/auth/kakao/callback
 OPENAI_API_KEY=<OpenAI API key, if OpenAI is enabled>
