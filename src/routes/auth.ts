@@ -54,6 +54,7 @@ auth.get('/kakao/callback', async (c) => {
   const profileImage = kakaoUser.kakao_account?.profile?.profile_image_url ?? kakaoUser.properties?.profile_image ?? null
 
   let user = await db.query.users.findFirst({ where: eq(users.kakaoId, kakaoId) })
+  const isNewUser = !user
 
   if (!user) {
     const [created] = await db.insert(users).values({ kakaoId, name, email, profileImage }).returning()
@@ -67,6 +68,7 @@ auth.get('/kakao/callback', async (c) => {
   const redirectUrl = new URL('/auth/callback', frontendUrl)
   redirectUrl.searchParams.set('accessToken', accessToken)
   redirectUrl.searchParams.set('refreshToken', refreshToken)
+  redirectUrl.searchParams.set('registered', String(isNewUser))
   return c.redirect(redirectUrl.toString())
 })
 
