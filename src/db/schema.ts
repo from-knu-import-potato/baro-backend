@@ -1,4 +1,5 @@
 import { pgTable, uuid, text, integer, numeric, boolean, timestamp, pgEnum } from 'drizzle-orm/pg-core'
+import { relations } from 'drizzle-orm'
 
 export const orderStatusEnum = pgEnum('order_status', ['pending', 'preparing', 'completed', 'cancelled'])
 export const unitEnum = pgEnum('unit', ['g', 'ml', '개'])
@@ -102,3 +103,8 @@ export const inboundItems = pgTable('inbound_items', {
   ingredientId: uuid('ingredient_id').references(() => ingredients.id).notNull(),
   amount: numeric('amount').notNull(),
 })
+
+export const storeMembersRelations = relations(storeMembers, ({ one }) => ({
+  store: one(stores, { fields: [storeMembers.storeId], references: [stores.id] }),
+  user: one(users, { fields: [storeMembers.userId], references: [users.id] }),
+}))
