@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import { db } from '../db/index.js'
-import { users, storeMembers } from '../db/schema.js'
+import { users, stores, storeMembers } from '../db/schema.js'
 import type { AppEnv } from '../types/index.js'
 import { authMiddleware } from '../middleware/auth.js'
 import { eq } from 'drizzle-orm'
@@ -28,6 +28,22 @@ usersRouter.get('/me/store', async (c) => {
     return c.json({ success: true, data: null })
   }
   return c.json({ success: true, data: { storeId: member.storeId, storeName: member.store.name } })
+})
+
+usersRouter.delete('/me', async (c) => {
+  const userId = c.get('userId')
+
+  const ownedStores = await db.query.storeMembers.findMany({
+    where: eq(storeMembers.userId, userId),
+  })
+
+  for (const member of ownedStores) {
+    await db.delete(stores).where(eq(stores.id, member.storeId))
+  }
+
+  await db.delete(users).where(eq(users.id, userId))
+
+  return c.json({ success: true, data: null })
 })
 
 export default usersRouter
