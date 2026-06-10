@@ -91,6 +91,10 @@ auth.get('/kakao/callback', async (c) => {
   return c.redirect(redirectUrl.toString())
 })
 
+auth.post('/logout', (c) => {
+  return c.json({ success: true, data: null })
+})
+
 auth.post('/refresh', async (c) => {
   const { refreshToken } = await c.req.json<{ refreshToken: string }>()
   if (!refreshToken) {
