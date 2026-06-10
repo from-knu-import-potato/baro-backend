@@ -11,6 +11,7 @@
     "db:studio": "drizzle-kit studio"
   },
   "dependencies": {
+    "@google/generative-ai": "^0.24.1",
     "@hono/node-server": "^1.19.14",
     "@hono/zod-validator": "^0.8.0",
     "@supabase/supabase-js": "^2.107.0",
