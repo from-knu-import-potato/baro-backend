@@ -4,19 +4,36 @@ import { users } from '../db/schema.js'
 import { signAccessToken, signRefreshToken, verifyRefreshToken } from '../lib/jwt.js'
 import { eq } from 'drizzle-orm'
 
+const ALLOWED_ORIGINS = [
+  'http://localhost:5173',
+  'https://baro-web.vercel.app',
+  'https://qa-baro-web.vercel.app',
+]
+
 const auth = new Hono()
 
 auth.get('/kakao', (c) => {
+  const returnUrl = c.req.query('returnUrl') ?? process.env.FRONTEND_URL ?? 'http://localhost:5173'
+
+  const isAllowed = ALLOWED_ORIGINS.some((origin) => returnUrl.startsWith(origin))
+  if (!isAllowed) {
+    return c.json({ success: false, error: { code: 'BAD_REQUEST', message: '허용되지 않은 returnUrl입니다.' } }, 400)
+  }
+
+  const state = Buffer.from(returnUrl).toString('base64')
+
   const url = new URL('https://kauth.kakao.com/oauth/authorize')
   url.searchParams.set('client_id', process.env.KAKAO_CLIENT_ID!)
   url.searchParams.set('redirect_uri', process.env.KAKAO_REDIRECT_URI!)
   url.searchParams.set('response_type', 'code')
   url.searchParams.set('scope', 'profile_nickname')
+  url.searchParams.set('state', state)
   return c.redirect(url.toString())
 })
 
 auth.get('/kakao/callback', async (c) => {
   const code = c.req.query('code')
+  const state = c.req.query('state')
   if (!code) {
     return c.json({ success: false, error: { code: 'BAD_REQUEST', message: '인증 코드가 없습니다.' } }, 400)
   }
@@ -64,7 +81,9 @@ auth.get('/kakao/callback', async (c) => {
   const accessToken = await signAccessToken(user.id)
   const refreshToken = await signRefreshToken(user.id)
 
-  const frontendUrl = process.env.FRONTEND_URL ?? 'http://localhost:5173'
+  const frontendUrl = state
+    ? Buffer.from(state, 'base64').toString('utf-8')
+    : process.env.FRONTEND_URL ?? 'http://localhost:5173'
   const redirectUrl = new URL('/auth/callback', frontendUrl)
   redirectUrl.searchParams.set('accessToken', accessToken)
   redirectUrl.searchParams.set('refreshToken', refreshToken)
