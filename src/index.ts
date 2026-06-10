@@ -12,7 +12,7 @@ import recipesRouter from './routes/recipes.js'
 const app = new Hono()
 
 app.use('*', cors({
-  origin: ['http://localhost:5173', 'https://baro-web.vercel.app'],
+  origin: ['http://localhost:5173', 'https://baro-web.vercel.app', 'https://qa-baro-web.vercel.app'],
   allowHeaders: ['Authorization', 'Content-Type'],
   allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
   credentials: true,
