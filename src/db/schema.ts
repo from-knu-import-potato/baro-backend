@@ -108,3 +108,12 @@ export const storeMembersRelations = relations(storeMembers, ({ one }) => ({
   store: one(stores, { fields: [storeMembers.storeId], references: [stores.id] }),
   user: one(users, { fields: [storeMembers.userId], references: [users.id] }),
 }))
+
+export const ordersRelations = relations(orders, ({ many }) => ({
+  items: many(orderItems),
+}))
+
+export const orderItemsRelations = relations(orderItems, ({ one }) => ({
+  order: one(orders, { fields: [orderItems.orderId], references: [orders.id] }),
+  menu: one(menus, { fields: [orderItems.menuId], references: [menus.id] }),
+}))
