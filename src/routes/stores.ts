@@ -9,8 +9,6 @@ import { eq } from 'drizzle-orm'
 
 const storesRouter = new Hono<AppEnv>()
 
-storesRouter.use('*', authMiddleware)
-
 const DAY_MAP: Record<string, number> = {
   sunday: 0,
   monday: 1,
@@ -56,7 +54,7 @@ const setupSchema = z.object({
   })),
 })
 
-storesRouter.post('/setup', zValidator('json', setupSchema), async (c) => {
+storesRouter.post('/setup', authMiddleware, zValidator('json', setupSchema), async (c) => {
   const userId = c.get('userId')
   const data = c.req.valid('json')
 
@@ -148,7 +146,7 @@ const updateStoreSchema = z.object({
   category: z.enum(['korean', 'western', 'cafe', 'bunsik', 'japanese', 'chinese', 'fastfood', 'other']).optional(),
 })
 
-storesRouter.patch('/:storeId', zValidator('json', updateStoreSchema), async (c) => {
+storesRouter.patch('/:storeId', authMiddleware, zValidator('json', updateStoreSchema), async (c) => {
   const storeId = c.req.param('storeId')
   const data = c.req.valid('json')
 

@@ -8,7 +8,6 @@ import { authMiddleware } from '../middleware/auth.js'
 import { eq, and } from 'drizzle-orm'
 
 const recipesRouter = new Hono<AppEnv>()
-recipesRouter.use('*', authMiddleware)
 
 const recipeSchema = z.object({
   menuId: z.string().uuid(),
@@ -16,7 +15,7 @@ const recipeSchema = z.object({
   amount: z.number().positive(),
 })
 
-recipesRouter.get('/:storeId/recipes', async (c) => {
+recipesRouter.get('/:storeId/recipes', authMiddleware, async (c) => {
   const storeId = c.req.param('storeId')
 
   const storeMenus = await db.select().from(menus).where(eq(menus.storeId, storeId))
@@ -41,7 +40,7 @@ recipesRouter.get('/:storeId/recipes', async (c) => {
   return c.json({ success: true, data: allRecipes })
 })
 
-recipesRouter.post('/:storeId/recipes', zValidator('json', recipeSchema), async (c) => {
+recipesRouter.post('/:storeId/recipes', authMiddleware, zValidator('json', recipeSchema), async (c) => {
   const body = c.req.valid('json')
   const [created] = await db.insert(recipes).values({
     menuId: body.menuId,
@@ -51,7 +50,7 @@ recipesRouter.post('/:storeId/recipes', zValidator('json', recipeSchema), async 
   return c.json({ success: true, data: created }, 201)
 })
 
-recipesRouter.delete('/:storeId/recipes/:recipeId', async (c) => {
+recipesRouter.delete('/:storeId/recipes/:recipeId', authMiddleware, async (c) => {
   const recipeId = c.req.param('recipeId')
   await db.delete(recipes).where(eq(recipes.id, recipeId))
   return c.json({ success: true, data: null })
