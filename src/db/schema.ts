@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, integer, numeric, boolean, timestamp, pgEnum } from 'drizzle-orm/pg-core'
+import { pgTable, uuid, text, integer, numeric, boolean, timestamp, pgEnum, date } from 'drizzle-orm/pg-core'
 import { relations } from 'drizzle-orm'
 
 export const orderStatusEnum = pgEnum('order_status', ['pending', 'preparing', 'completed', 'cancelled'])
@@ -102,6 +102,7 @@ export const inboundItems = pgTable('inbound_items', {
   inboundRecordId: uuid('inbound_record_id').references(() => inboundRecords.id, { onDelete: 'cascade' }).notNull(),
   ingredientId: uuid('ingredient_id').references(() => ingredients.id).notNull(),
   amount: numeric('amount').notNull(),
+  expiryDate: date('expiry_date'),
 })
 
 export const storeMembersRelations = relations(storeMembers, ({ one }) => ({

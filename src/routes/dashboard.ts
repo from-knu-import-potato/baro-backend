@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import { db } from '../db/index.js'
-import { orders, ingredients } from '../db/schema.js'
+import { orders, ingredients, inboundItems } from '../db/schema.js'
 import type { AppEnv } from '../types/index.js'
 import { authMiddleware } from '../middleware/auth.js'
 import { eq, and, gte, lt, ne, count, sql } from 'drizzle-orm'
@@ -20,12 +20,15 @@ dashboardRouter.get('/:storeId/dashboard/stats', authMiddleware, async (c) => {
     .from(ingredients)
     .where(eq(ingredients.storeId, storeId))
 
-  const [{ total: lowStockCount }] = await db
-    .select({ total: count() })
-    .from(ingredients)
+  // 유통기한 7일 이내 식자재 수 (중복 제거)
+  const [{ total: expiringCount }] = await db
+    .select({ total: sql<number>`cast(count(distinct ${inboundItems.ingredientId}) as int)` })
+    .from(inboundItems)
+    .innerJoin(ingredients, eq(inboundItems.ingredientId, ingredients.id))
     .where(and(
       eq(ingredients.storeId, storeId),
-      sql`${ingredients.currentStock} < ${ingredients.safetyStock}`,
+      sql`${inboundItems.expiryDate} >= CURRENT_DATE`,
+      sql`${inboundItems.expiryDate} <= CURRENT_DATE + INTERVAL '7 days'`,
     ))
 
   const [{ total: thisMonthRevenue }] = await db
@@ -57,8 +60,8 @@ dashboardRouter.get('/:storeId/dashboard/stats', authMiddleware, async (c) => {
     success: true,
     data: {
       totalInventory,
-      expiringItems: lowStockCount,
-      aiOrderRecommendations: lowStockCount,
+      expiringItems: expiringCount,
+      aiOrderRecommendations: expiringCount,
       monthlyConsumption: thisMonth,
       monthlyConsumptionChange,
       lastUpdated: now.toISOString(),
