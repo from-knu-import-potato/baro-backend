@@ -2,10 +2,10 @@ import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import { db } from '../db/index.js'
-import { ingredients } from '../db/schema.js'
+import { ingredients, inboundRecords, inboundItems } from '../db/schema.js'
 import type { AppEnv } from '../types/index.js'
 import { authMiddleware } from '../middleware/auth.js'
-import { eq, and } from 'drizzle-orm'
+import { eq, and, sql, inArray } from 'drizzle-orm'
 
 const ingredientsRouter = new Hono<AppEnv>()
 
@@ -16,9 +16,38 @@ const ingredientSchema = z.object({
   safetyStock: z.number().min(0).optional(),
 })
 
+const inboundSchema = z.object({
+  items: z.array(z.object({
+    ingredientId: z.string().uuid(),
+    amount: z.number().positive(),
+    expiryDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+  })).min(1),
+})
+
+// 재고 목록 조회 (식자재별 가장 가까운 유통기한 포함)
 ingredientsRouter.get('/:storeId/ingredients', authMiddleware, async (c) => {
   const storeId = c.req.param('storeId')
-  const list = await db.select().from(ingredients).where(eq(ingredients.storeId, storeId))
+
+  const list = await db
+    .select({
+      id: ingredients.id,
+      storeId: ingredients.storeId,
+      name: ingredients.name,
+      unit: ingredients.unit,
+      currentStock: ingredients.currentStock,
+      safetyStock: ingredients.safetyStock,
+      createdAt: ingredients.createdAt,
+      updatedAt: ingredients.updatedAt,
+      nearestExpiryDate: sql<string | null>`(
+        SELECT MIN(ii.expiry_date)
+        FROM inbound_items ii
+        WHERE ii.ingredient_id = ${ingredients.id}
+          AND ii.expiry_date >= CURRENT_DATE
+      )`,
+    })
+    .from(ingredients)
+    .where(eq(ingredients.storeId, storeId))
+
   return c.json({ success: true, data: list })
 })
 
@@ -56,6 +85,50 @@ ingredientsRouter.delete('/:storeId/ingredients/:id', authMiddleware, async (c) 
   const { storeId, id } = c.req.param()
   await db.delete(ingredients).where(and(eq(ingredients.id, id), eq(ingredients.storeId, storeId)))
   return c.json({ success: true, data: null })
+})
+
+// 입고 처리 (OCR 확정 후 호출)
+ingredientsRouter.post('/:storeId/ingredients/inbound', authMiddleware, zValidator('json', inboundSchema), async (c) => {
+  const storeId = c.req.param('storeId')
+  const { items } = c.req.valid('json')
+
+  // 해당 가게 식자재인지 검증
+  const ingredientIds = items.map((i) => i.ingredientId)
+  const owned = await db
+    .select({ id: ingredients.id })
+    .from(ingredients)
+    .where(and(
+      eq(ingredients.storeId, storeId),
+      inArray(ingredients.id, ingredientIds),
+    ))
+
+  if (owned.length !== ingredientIds.length) {
+    return c.json({ success: false, error: { code: 'BAD_REQUEST', message: '유효하지 않은 식자재가 포함되어 있습니다.' } }, 400)
+  }
+
+  const [record] = await db.insert(inboundRecords).values({ storeId }).returning()
+
+  await db.insert(inboundItems).values(
+    items.map((item) => ({
+      inboundRecordId: record.id,
+      ingredientId: item.ingredientId,
+      amount: String(item.amount),
+      expiryDate: item.expiryDate ?? null,
+    }))
+  )
+
+  // currentStock 누적
+  for (const item of items) {
+    await db
+      .update(ingredients)
+      .set({
+        currentStock: sql`${ingredients.currentStock} + ${String(item.amount)}`,
+        updatedAt: new Date(),
+      })
+      .where(eq(ingredients.id, item.ingredientId))
+  }
+
+  return c.json({ success: true, data: { inboundRecordId: record.id } }, 201)
 })
 
 export default ingredientsRouter
