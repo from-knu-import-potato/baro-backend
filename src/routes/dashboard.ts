@@ -20,6 +20,15 @@ dashboardRouter.get('/:storeId/dashboard/stats', authMiddleware, async (c) => {
     .from(ingredients)
     .where(eq(ingredients.storeId, storeId))
 
+  // 안전재고 미달 수 (발주 가이드 API 구현 전 임시)
+  const [{ total: lowStockCount }] = await db
+    .select({ total: count() })
+    .from(ingredients)
+    .where(and(
+      eq(ingredients.storeId, storeId),
+      sql`${ingredients.currentStock} < ${ingredients.safetyStock}`,
+    ))
+
   // 유통기한 7일 이내 식자재 수 (중복 제거)
   const [{ total: expiringCount }] = await db
     .select({ total: sql<number>`cast(count(distinct ${inboundItems.ingredientId}) as int)` })
@@ -61,7 +70,7 @@ dashboardRouter.get('/:storeId/dashboard/stats', authMiddleware, async (c) => {
     data: {
       totalInventory,
       expiringItems: expiringCount,
-      aiOrderRecommendations: expiringCount,
+      aiOrderRecommendations: lowStockCount,
       monthlyConsumption: thisMonth,
       monthlyConsumptionChange,
       lastUpdated: now.toISOString(),
