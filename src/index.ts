@@ -10,6 +10,7 @@ import ingredients from './routes/ingredients.js'
 import recipesRouter from './routes/recipes.js'
 import ocrRouter from './routes/ocr.js'
 import ordersRouter from './routes/orders.js'
+import dashboardRouter from './routes/dashboard.js'
 
 const app = new Hono()
 
@@ -28,6 +29,7 @@ app.route('/v1/stores', recipesRouter)
 app.route('/v1/users', users)
 app.route('/v1/stores', ocrRouter)
 app.route('/v1/stores', ordersRouter)
+app.route('/v1/stores', dashboardRouter)
 
 app.get('/', (c) => c.json({ success: true, data: { message: 'BARO API' } }))
 
