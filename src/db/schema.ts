@@ -86,7 +86,7 @@ export const orders = pgTable('orders', {
 export const orderItems = pgTable('order_items', {
   id: uuid('id').primaryKey().defaultRandom(),
   orderId: uuid('order_id').references(() => orders.id, { onDelete: 'cascade' }).notNull(),
-  menuId: uuid('menu_id').references(() => menus.id).notNull(),
+  menuId: uuid('menu_id').references(() => menus.id, { onDelete: 'cascade' }).notNull(),
   quantity: integer('quantity').notNull(),
   unitPrice: integer('unit_price').notNull(),
 })
@@ -107,4 +107,13 @@ export const inboundItems = pgTable('inbound_items', {
 export const storeMembersRelations = relations(storeMembers, ({ one }) => ({
   store: one(stores, { fields: [storeMembers.storeId], references: [stores.id] }),
   user: one(users, { fields: [storeMembers.userId], references: [users.id] }),
+}))
+
+export const ordersRelations = relations(orders, ({ many }) => ({
+  items: many(orderItems),
+}))
+
+export const orderItemsRelations = relations(orderItems, ({ one }) => ({
+  order: one(orders, { fields: [orderItems.orderId], references: [orders.id] }),
+  menu: one(menus, { fields: [orderItems.menuId], references: [menus.id] }),
 }))

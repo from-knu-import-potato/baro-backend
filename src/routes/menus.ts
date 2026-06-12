@@ -9,7 +9,6 @@ import { eq, and } from 'drizzle-orm'
 import { supabase } from '../lib/supabase.js'
 
 const menusRouter = new Hono<AppEnv>()
-menusRouter.use('*', authMiddleware)
 
 const menuSchema = z.object({
   name: z.string().min(1),
@@ -19,7 +18,7 @@ const menuSchema = z.object({
   isAvailable: z.boolean().optional(),
 })
 
-menusRouter.post('/:storeId/menus/upload', async (c) => {
+menusRouter.post('/:storeId/menus/upload', authMiddleware, async (c) => {
   const storeId = c.req.param('storeId')
   const body = await c.req.parseBody()
   const file = body['file']
@@ -50,14 +49,14 @@ menusRouter.get('/:storeId/menus', async (c) => {
   return c.json({ success: true, data: list })
 })
 
-menusRouter.post('/:storeId/menus', zValidator('json', menuSchema), async (c) => {
+menusRouter.post('/:storeId/menus', authMiddleware, zValidator('json', menuSchema), async (c) => {
   const storeId = c.req.param('storeId')
   const body = c.req.valid('json')
   const [created] = await db.insert(menus).values({ storeId, ...body }).returning()
   return c.json({ success: true, data: created }, 201)
 })
 
-menusRouter.patch('/:storeId/menus/:menuId', zValidator('json', menuSchema.partial()), async (c) => {
+menusRouter.patch('/:storeId/menus/:menuId', authMiddleware, zValidator('json', menuSchema.partial()), async (c) => {
   const { storeId, menuId } = c.req.param()
   const body = c.req.valid('json')
   const [updated] = await db.update(menus)
@@ -68,7 +67,7 @@ menusRouter.patch('/:storeId/menus/:menuId', zValidator('json', menuSchema.parti
   return c.json({ success: true, data: updated })
 })
 
-menusRouter.delete('/:storeId/menus/:menuId', async (c) => {
+menusRouter.delete('/:storeId/menus/:menuId', authMiddleware, async (c) => {
   const { storeId, menuId } = c.req.param()
   await db.delete(menus).where(and(eq(menus.id, menuId), eq(menus.storeId, storeId)))
   return c.json({ success: true, data: null })

@@ -4,7 +4,6 @@ import type { AppEnv } from "../types/index.js";
 import { authMiddleware } from "../middleware/auth.js";
 
 const ocrRouter = new Hono<AppEnv>();
-ocrRouter.use("*", authMiddleware);
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY! });
 
@@ -15,7 +14,7 @@ type OcrItem = {
   unitPrice: number | null;
 };
 
-ocrRouter.post("/:storeId/ocr/upload", async (c) => {
+ocrRouter.post("/:storeId/ocr/upload", authMiddleware, async (c) => {
   const body = await c.req.parseBody();
   const file = body["file"];
 

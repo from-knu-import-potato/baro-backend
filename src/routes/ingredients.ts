@@ -8,7 +8,6 @@ import { authMiddleware } from '../middleware/auth.js'
 import { eq, and } from 'drizzle-orm'
 
 const ingredientsRouter = new Hono<AppEnv>()
-ingredientsRouter.use('*', authMiddleware)
 
 const ingredientSchema = z.object({
   name: z.string().min(1),
@@ -17,13 +16,13 @@ const ingredientSchema = z.object({
   safetyStock: z.number().min(0).optional(),
 })
 
-ingredientsRouter.get('/:storeId/ingredients', async (c) => {
+ingredientsRouter.get('/:storeId/ingredients', authMiddleware, async (c) => {
   const storeId = c.req.param('storeId')
   const list = await db.select().from(ingredients).where(eq(ingredients.storeId, storeId))
   return c.json({ success: true, data: list })
 })
 
-ingredientsRouter.post('/:storeId/ingredients', zValidator('json', ingredientSchema), async (c) => {
+ingredientsRouter.post('/:storeId/ingredients', authMiddleware, zValidator('json', ingredientSchema), async (c) => {
   const storeId = c.req.param('storeId')
   const body = c.req.valid('json')
   const [created] = await db.insert(ingredients).values({
@@ -36,7 +35,7 @@ ingredientsRouter.post('/:storeId/ingredients', zValidator('json', ingredientSch
   return c.json({ success: true, data: created }, 201)
 })
 
-ingredientsRouter.patch('/:storeId/ingredients/:id', zValidator('json', ingredientSchema.partial()), async (c) => {
+ingredientsRouter.patch('/:storeId/ingredients/:id', authMiddleware, zValidator('json', ingredientSchema.partial()), async (c) => {
   const { storeId, id } = c.req.param()
   const body = c.req.valid('json')
   const [updated] = await db.update(ingredients)
@@ -53,7 +52,7 @@ ingredientsRouter.patch('/:storeId/ingredients/:id', zValidator('json', ingredie
   return c.json({ success: true, data: updated })
 })
 
-ingredientsRouter.delete('/:storeId/ingredients/:id', async (c) => {
+ingredientsRouter.delete('/:storeId/ingredients/:id', authMiddleware, async (c) => {
   const { storeId, id } = c.req.param()
   await db.delete(ingredients).where(and(eq(ingredients.id, id), eq(ingredients.storeId, storeId)))
   return c.json({ success: true, data: null })
