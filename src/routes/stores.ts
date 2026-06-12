@@ -144,6 +144,7 @@ const updateStoreSchema = z.object({
   ownerName: z.string().optional(),
   businessType: z.enum(['franchise', 'directly-operated', 'individual']).optional(),
   category: z.enum(['korean', 'western', 'cafe', 'bunsik', 'japanese', 'chinese', 'fastfood', 'other']).optional(),
+  memo: z.string().nullable().optional(),
 })
 
 storesRouter.patch('/:storeId', authMiddleware, zValidator('json', updateStoreSchema), async (c) => {
@@ -156,6 +157,7 @@ storesRouter.patch('/:storeId', authMiddleware, zValidator('json', updateStoreSc
       ...(data.ownerName && { ownerName: data.ownerName }),
       ...(data.businessType && { businessType: data.businessType }),
       ...(data.category && { category: data.category }),
+      ...('memo' in data && { memo: data.memo ?? null }),
       updatedAt: new Date(),
     })
     .where(eq(stores.id, storeId))
