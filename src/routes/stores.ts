@@ -5,7 +5,7 @@ import { db } from '../db/index.js'
 import { stores, storeMembers, operatingHours, menus, ingredients, recipes } from '../db/schema.js'
 import type { AppEnv } from '../types/index.js'
 import { authMiddleware } from '../middleware/auth.js'
-import { eq } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 
 const storesRouter = new Hono<AppEnv>()
 
@@ -167,6 +167,16 @@ storesRouter.patch('/:storeId', authMiddleware, zValidator('json', updateStoreSc
 
   if (!updated) {
     return c.json({ success: false, error: { code: 'NOT_FOUND', message: '가게를 찾을 수 없습니다.' } }, 404)
+  }
+
+  // safetyStockPct가 변경된 경우 전체 식자재 안전재고 일괄 업데이트
+  if ('safetyStockPct' in data && data.safetyStockPct != null) {
+    await db.update(ingredients)
+      .set({
+        safetyStock: sql`ROUND(${ingredients.currentStock} * ${data.safetyStockPct} / 100.0, 2)`,
+        updatedAt: new Date(),
+      })
+      .where(eq(ingredients.storeId, storeId))
   }
 
   return c.json({ success: true, data: updated })
