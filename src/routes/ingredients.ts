@@ -2,7 +2,7 @@ import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import { db } from '../db/index.js'
-import { ingredients, inboundRecords, inboundItems } from '../db/schema.js'
+import { ingredients, inboundRecords, inboundItems, recipes, menus } from '../db/schema.js'
 import type { AppEnv } from '../types/index.js'
 import { authMiddleware } from '../middleware/auth.js'
 import { eq, and, sql, inArray } from 'drizzle-orm'
@@ -44,6 +44,18 @@ ingredientsRouter.get('/:storeId/ingredients', authMiddleware, async (c) => {
         FROM inbound_items ii
         WHERE ii.ingredient_id = ${ingredients.id}
           AND ii.expiry_date >= CURRENT_DATE
+      )`,
+      lastInboundDate: sql<string | null>`(
+        SELECT MAX(ir.created_at)
+        FROM inbound_records ir
+        JOIN inbound_items ii ON ii.inbound_record_id = ir.id
+        WHERE ii.ingredient_id = ${ingredients.id}
+      )`,
+      relatedMenus: sql<string[]>`(
+        SELECT COALESCE(array_agg(m.name ORDER BY m.name), ARRAY[]::text[])
+        FROM recipes r
+        JOIN menus m ON r.menu_id = m.id
+        WHERE r.ingredient_id = ${ingredients.id}
       )`,
     })
     .from(ingredients)
