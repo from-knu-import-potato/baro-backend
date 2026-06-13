@@ -2,7 +2,7 @@ import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import { db } from '../db/index.js'
-import { ingredients, inboundRecords, inboundItems } from '../db/schema.js'
+import { ingredients, inboundRecords, inboundItems, recipes, menus } from '../db/schema.js'
 import type { AppEnv } from '../types/index.js'
 import { authMiddleware } from '../middleware/auth.js'
 import { eq, and, sql, inArray } from 'drizzle-orm'
@@ -14,6 +14,7 @@ const ingredientSchema = z.object({
   unit: z.enum(['g', 'ml', '개']),
   currentStock: z.number().min(0).optional(),
   safetyStock: z.number().min(0).optional(),
+  isFavorite: z.boolean().optional(),
 })
 
 const inboundSchema = z.object({
@@ -37,13 +38,26 @@ ingredientsRouter.get('/:storeId/ingredients', authMiddleware, async (c) => {
       unit: ingredients.unit,
       currentStock: ingredients.currentStock,
       safetyStock: ingredients.safetyStock,
+      isFavorite: ingredients.isFavorite,
       createdAt: ingredients.createdAt,
       updatedAt: ingredients.updatedAt,
       nearestExpiryDate: sql<string | null>`(
         SELECT MIN(ii.expiry_date)
         FROM inbound_items ii
-        WHERE ii.ingredient_id = ${ingredients.id}
+        WHERE ii.ingredient_id = "ingredients"."id"
           AND ii.expiry_date >= CURRENT_DATE
+      )`,
+      lastInboundDate: sql<string | null>`(
+        SELECT MAX(ir.created_at)
+        FROM inbound_records ir
+        JOIN inbound_items ii ON ii.inbound_record_id = ir.id
+        WHERE ii.ingredient_id = "ingredients"."id"
+      )`,
+      relatedMenus: sql<string[]>`(
+        SELECT COALESCE(array_agg(m.name ORDER BY m.name), ARRAY[]::text[])
+        FROM recipes r
+        JOIN menus m ON r.menu_id = m.id
+        WHERE r.ingredient_id = "ingredients"."id"
       )`,
     })
     .from(ingredients)
@@ -74,6 +88,7 @@ ingredientsRouter.patch('/:storeId/ingredients/:id', authMiddleware, zValidator(
       ...(body.unit && { unit: body.unit }),
       ...(body.currentStock !== undefined && { currentStock: String(body.currentStock) }),
       ...(body.safetyStock !== undefined && { safetyStock: String(body.safetyStock) }),
+      ...(body.isFavorite !== undefined && { isFavorite: body.isFavorite }),
       updatedAt: new Date(),
     })
     .where(and(eq(ingredients.id, id), eq(ingredients.storeId, storeId)))
