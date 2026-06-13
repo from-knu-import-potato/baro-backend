@@ -42,20 +42,20 @@ ingredientsRouter.get('/:storeId/ingredients', authMiddleware, async (c) => {
       nearestExpiryDate: sql<string | null>`(
         SELECT MIN(ii.expiry_date)
         FROM inbound_items ii
-        WHERE ii.ingredient_id = ${ingredients.id}
+        WHERE ii.ingredient_id = "ingredients"."id"
           AND ii.expiry_date >= CURRENT_DATE
       )`,
       lastInboundDate: sql<string | null>`(
         SELECT MAX(ir.created_at)
         FROM inbound_records ir
         JOIN inbound_items ii ON ii.inbound_record_id = ir.id
-        WHERE ii.ingredient_id = ${ingredients.id}
+        WHERE ii.ingredient_id = "ingredients"."id"
       )`,
       relatedMenus: sql<string[]>`(
         SELECT COALESCE(array_agg(m.name ORDER BY m.name), ARRAY[]::text[])
         FROM recipes r
         JOIN menus m ON r.menu_id = m.id
-        WHERE r.ingredient_id = ${ingredients.id}
+        WHERE r.ingredient_id = "ingredients"."id"
       )`,
     })
     .from(ingredients)
