@@ -38,6 +38,7 @@ ingredientsRouter.get('/:storeId/ingredients', authMiddleware, async (c) => {
       unit: ingredients.unit,
       currentStock: ingredients.currentStock,
       safetyStock: ingredients.safetyStock,
+      isFavorite: ingredients.isFavorite,
       createdAt: ingredients.createdAt,
       updatedAt: ingredients.updatedAt,
       nearestExpiryDate: sql<string | null>`(
