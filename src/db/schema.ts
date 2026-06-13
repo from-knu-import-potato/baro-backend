@@ -23,6 +23,7 @@ export const stores = pgTable('stores', {
   category: text('category'),
   inviteCode: text('invite_code').unique(),
   memo: text('memo'),
+  safetyStockPct: integer('safety_stock_pct'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 })

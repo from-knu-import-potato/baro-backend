@@ -5,7 +5,7 @@ import { db } from '../db/index.js'
 import { stores, storeMembers, operatingHours, menus, ingredients, recipes } from '../db/schema.js'
 import type { AppEnv } from '../types/index.js'
 import { authMiddleware } from '../middleware/auth.js'
-import { eq } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 
 const storesRouter = new Hono<AppEnv>()
 
@@ -145,6 +145,7 @@ const updateStoreSchema = z.object({
   businessType: z.enum(['franchise', 'directly-operated', 'individual']).optional(),
   category: z.enum(['korean', 'western', 'cafe', 'bunsik', 'japanese', 'chinese', 'fastfood', 'other']).optional(),
   memo: z.string().nullable().optional(),
+  safetyStockPct: z.number().int().min(0).max(100).nullable().optional(),
 })
 
 storesRouter.patch('/:storeId', authMiddleware, zValidator('json', updateStoreSchema), async (c) => {
@@ -158,6 +159,7 @@ storesRouter.patch('/:storeId', authMiddleware, zValidator('json', updateStoreSc
       ...(data.businessType && { businessType: data.businessType }),
       ...(data.category && { category: data.category }),
       ...('memo' in data && { memo: data.memo ?? null }),
+      ...('safetyStockPct' in data && { safetyStockPct: data.safetyStockPct ?? null }),
       updatedAt: new Date(),
     })
     .where(eq(stores.id, storeId))
@@ -165,6 +167,16 @@ storesRouter.patch('/:storeId', authMiddleware, zValidator('json', updateStoreSc
 
   if (!updated) {
     return c.json({ success: false, error: { code: 'NOT_FOUND', message: '가게를 찾을 수 없습니다.' } }, 404)
+  }
+
+  // safetyStockPct가 변경된 경우 전체 식자재 안전재고 일괄 업데이트
+  if ('safetyStockPct' in data && data.safetyStockPct != null) {
+    await db.update(ingredients)
+      .set({
+        safetyStock: sql`ROUND(${ingredients.currentStock} * ${data.safetyStockPct} / 100.0, 2)`,
+        updatedAt: new Date(),
+      })
+      .where(eq(ingredients.storeId, storeId))
   }
 
   return c.json({ success: true, data: updated })

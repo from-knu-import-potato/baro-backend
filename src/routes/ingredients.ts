@@ -2,7 +2,7 @@ import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import { db } from '../db/index.js'
-import { ingredients, inboundRecords, inboundItems, recipes, menus } from '../db/schema.js'
+import { ingredients, inboundRecords, inboundItems, recipes, menus, stores } from '../db/schema.js'
 import type { AppEnv } from '../types/index.js'
 import { authMiddleware } from '../middleware/auth.js'
 import { eq, and, sql, inArray } from 'drizzle-orm'
@@ -69,12 +69,28 @@ ingredientsRouter.get('/:storeId/ingredients', authMiddleware, async (c) => {
 ingredientsRouter.post('/:storeId/ingredients', authMiddleware, zValidator('json', ingredientSchema), async (c) => {
   const storeId = c.req.param('storeId')
   const body = c.req.valid('json')
+
+  const currentStock = body.currentStock ?? 0
+
+  // 가게의 safetyStockPct가 있으면 자동 계산, 아니면 요청값 또는 0
+  let safetyStock = body.safetyStock ?? 0
+  if (body.safetyStock === undefined) {
+    const store = await db.select({ safetyStockPct: stores.safetyStockPct })
+      .from(stores)
+      .where(eq(stores.id, storeId))
+      .limit(1)
+    const pct = store[0]?.safetyStockPct
+    if (pct != null) {
+      safetyStock = Math.round(currentStock * pct) / 100
+    }
+  }
+
   const [created] = await db.insert(ingredients).values({
     storeId,
     name: body.name,
     unit: body.unit,
-    currentStock: String(body.currentStock ?? 0),
-    safetyStock: String(body.safetyStock ?? 0),
+    currentStock: String(currentStock),
+    safetyStock: String(safetyStock),
   }).returning()
   return c.json({ success: true, data: created }, 201)
 })
