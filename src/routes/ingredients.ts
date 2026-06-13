@@ -14,6 +14,7 @@ const ingredientSchema = z.object({
   unit: z.enum(['g', 'ml', '개']),
   currentStock: z.number().min(0).optional(),
   safetyStock: z.number().min(0).optional(),
+  isFavorite: z.boolean().optional(),
 })
 
 const inboundSchema = z.object({
@@ -86,6 +87,7 @@ ingredientsRouter.patch('/:storeId/ingredients/:id', authMiddleware, zValidator(
       ...(body.unit && { unit: body.unit }),
       ...(body.currentStock !== undefined && { currentStock: String(body.currentStock) }),
       ...(body.safetyStock !== undefined && { safetyStock: String(body.safetyStock) }),
+      ...(body.isFavorite !== undefined && { isFavorite: body.isFavorite }),
       updatedAt: new Date(),
     })
     .where(and(eq(ingredients.id, id), eq(ingredients.storeId, storeId)))

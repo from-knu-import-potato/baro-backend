@@ -63,6 +63,7 @@ export const ingredients = pgTable('ingredients', {
   unit: unitEnum('unit').notNull(),
   currentStock: numeric('current_stock').default('0').notNull(),
   safetyStock: numeric('safety_stock').default('0').notNull(),
+  isFavorite: boolean('is_favorite').default(false).notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 })
