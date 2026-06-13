@@ -102,6 +102,7 @@ export const inboundItems = pgTable('inbound_items', {
   inboundRecordId: uuid('inbound_record_id').references(() => inboundRecords.id, { onDelete: 'cascade' }).notNull(),
   ingredientId: uuid('ingredient_id').references(() => ingredients.id).notNull(),
   amount: numeric('amount').notNull(),
+  unitPrice: numeric('unit_price'),
   expiryDate: date('expiry_date'),
 })
 
