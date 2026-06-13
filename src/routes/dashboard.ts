@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import { db } from '../db/index.js'
-import { orders, ingredients, inboundItems } from '../db/schema.js'
+import { orders, ingredients, inboundItems, inboundRecords } from '../db/schema.js'
 import type { AppEnv } from '../types/index.js'
 import { authMiddleware } from '../middleware/auth.js'
 import { eq, and, gte, lt, ne, count, sql } from 'drizzle-orm'
@@ -105,11 +105,28 @@ dashboardRouter.get('/:storeId/dashboard/sales', authMiddleware, async (c) => {
       lt(orders.createdAt, periodEnd),
     ))
 
+  // 월별 입고 비용 (수량 × 단가 합계)
+  const allInbound = await db
+    .select({
+      createdAt: inboundRecords.createdAt,
+      cost: sql<string>`coalesce(${inboundItems.amount} * ${inboundItems.unitPrice}, 0)`,
+    })
+    .from(inboundRecords)
+    .innerJoin(inboundItems, eq(inboundItems.inboundRecordId, inboundRecords.id))
+    .where(and(
+      eq(inboundRecords.storeId, storeId),
+      gte(inboundRecords.createdAt, periodStart),
+      lt(inboundRecords.createdAt, periodEnd),
+    ))
+
   const salesData = months.map(({ label, start, end }) => {
     const sales = allOrders
       .filter((o) => o.createdAt >= start && o.createdAt < end)
       .reduce((sum, o) => sum + o.totalPrice, 0)
-    return { month: label, consumption: 0, sales }
+    const consumption = allInbound
+      .filter((i) => i.createdAt >= start && i.createdAt < end)
+      .reduce((sum, i) => sum + Number(i.cost), 0)
+    return { month: label, consumption, sales }
   })
 
   return c.json({ success: true, data: salesData })

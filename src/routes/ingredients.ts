@@ -20,6 +20,7 @@ const inboundSchema = z.object({
   items: z.array(z.object({
     ingredientId: z.string().uuid(),
     amount: z.number().positive(),
+    unitPrice: z.number().positive().nullable().optional(),
     expiryDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   })).min(1),
 })
@@ -113,6 +114,7 @@ ingredientsRouter.post('/:storeId/ingredients/inbound', authMiddleware, zValidat
       inboundRecordId: record.id,
       ingredientId: item.ingredientId,
       amount: String(item.amount),
+      unitPrice: item.unitPrice != null ? String(item.unitPrice) : null,
       expiryDate: item.expiryDate ?? null,
     }))
   )
