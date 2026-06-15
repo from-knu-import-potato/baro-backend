@@ -11,6 +11,8 @@ import recipesRouter from './routes/recipes.js'
 import ocrRouter from './routes/ocr.js'
 import ordersRouter from './routes/orders.js'
 import dashboardRouter from './routes/dashboard.js'
+import menuCategoriesRouter from './routes/menu-categories.js'
+import themeRouter from './routes/theme.js'
 
 const app = new Hono()
 
@@ -30,6 +32,8 @@ app.route('/v1/users', users)
 app.route('/v1/stores', ocrRouter)
 app.route('/v1/stores', ordersRouter)
 app.route('/v1/stores', dashboardRouter)
+app.route('/v1/stores', menuCategoriesRouter)
+app.route('/v1/stores', themeRouter)
 
 app.get('/', (c) => c.json({ success: true, data: { message: 'BARO API' } }))
 

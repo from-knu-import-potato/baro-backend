@@ -24,6 +24,10 @@ export const stores = pgTable('stores', {
   inviteCode: text('invite_code').unique(),
   memo: text('memo'),
   safetyStockPct: integer('safety_stock_pct'),
+  themeColor: text('theme_color').default('blue').notNull(),
+  layout: text('layout').default('list').notNull(),
+  bannerImageUrl: text('banner_image_url'),
+  bannerPosition: text('banner_position').default('50% 50%').notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 })
@@ -45,9 +49,19 @@ export const operatingHours = pgTable('operating_hours', {
   isClosed: boolean('is_closed').default(false).notNull(),
 })
 
+export const menuCategories = pgTable('menu_categories', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  storeId: uuid('store_id').references(() => stores.id, { onDelete: 'cascade' }).notNull(),
+  name: text('name').notNull(),
+  sortOrder: integer('sort_order').default(0).notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+})
+
 export const menus = pgTable('menus', {
   id: uuid('id').primaryKey().defaultRandom(),
   storeId: uuid('store_id').references(() => stores.id, { onDelete: 'cascade' }).notNull(),
+  categoryId: uuid('category_id').references(() => menuCategories.id, { onDelete: 'set null' }),
   name: text('name').notNull(),
   price: integer('price').notNull(),
   description: text('description'),
