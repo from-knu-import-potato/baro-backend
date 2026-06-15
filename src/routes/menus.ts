@@ -25,6 +25,7 @@ const menuSchema = z.object({
   description: z.string().nullish(),
   imageUrl: z.string().nullish(),
   isAvailable: z.boolean().optional(),
+  categoryId: z.string().uuid().nullable().optional(),
 })
 
 menusRouter.post('/:storeId/menus/upload', authMiddleware, async (c) => {
