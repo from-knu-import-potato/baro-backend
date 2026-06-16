@@ -1,10 +1,10 @@
 import { Hono } from 'hono'
 import Groq from 'groq-sdk'
 import { db } from '../db/index.js'
-import { ingredients, recipes, menus, orders, closings, closingDeductions } from '../db/schema.js'
+import { ingredients, recipes, menus, orders, closings, closingDeductions, orderGuides, orderGuideItems } from '../db/schema.js'
 import type { AppEnv } from '../types/index.js'
 import { authMiddleware } from '../middleware/auth.js'
-import { eq, and, sql, inArray, gte } from 'drizzle-orm'
+import { eq, and, sql, inArray, gte, desc } from 'drizzle-orm'
 
 const orderGuideRouter = new Hono<AppEnv>()
 
@@ -32,43 +32,53 @@ function calcRecommendedAmount(current: number, safety: number): number {
   return Math.max(0, safety * 2 - current)
 }
 
-// 발주 가이드 목록 조회 (룰 기반 간략 버전)
+// 발주 가이드 조회 — 가장 최근 AI 생성 결과 반환
 orderGuideRouter.get('/:storeId/order-guide', authMiddleware, async (c) => {
   const storeId = c.req.param('storeId')
 
-  const list = await db
-    .select({
-      id: ingredients.id,
-      name: ingredients.name,
-      unit: ingredients.unit,
-      currentStock: ingredients.currentStock,
-      safetyStock: ingredients.safetyStock,
+  const [latestGuide] = await db
+    .select()
+    .from(orderGuides)
+    .where(eq(orderGuides.storeId, storeId))
+    .orderBy(desc(orderGuides.generatedAt))
+    .limit(1)
+
+  if (!latestGuide) {
+    return c.json({
+      success: true,
+      data: { generatedAt: null, summary: null, items: [] },
     })
-    .from(ingredients)
-    .where(sql`${ingredients.storeId} = ${storeId} AND ${ingredients.currentStock} < ${ingredients.safetyStock}`)
+  }
 
-  const items: OrderGuideItem[] = list.map((ing) => {
-    const current = Number(ing.currentStock)
-    const safety = Number(ing.safetyStock)
-    const ratio = safety > 0 ? Math.round((current / safety) * 100) : 0
-    return {
-      ingredientId: ing.id,
-      ingredientName: ing.name,
-      unit: ing.unit,
-      currentStock: current,
-      safetyStock: safety,
-      status: calcStatus(current, safety),
-      recommendedOrderAmount: calcRecommendedAmount(current, safety),
-      reason: `현재 재고가 안전재고의 ${ratio}% 수준입니다.`,
-    }
+  const items = await db
+    .select()
+    .from(orderGuideItems)
+    .where(eq(orderGuideItems.orderGuideId, latestGuide.id))
+
+  return c.json({
+    success: true,
+    data: {
+      generatedAt: latestGuide.generatedAt.toISOString(),
+      summary: latestGuide.summary,
+      items: items.map((item) => ({
+        ingredientId: item.ingredientId,
+        ingredientName: item.ingredientName,
+        unit: item.unit,
+        currentStock: Number(item.currentStock),
+        safetyStock: Number(item.safetyStock),
+        status: item.status as OrderGuideStatus,
+        recommendedOrderAmount: Number(item.recommendedOrderAmount),
+        reason: item.reason,
+      })),
+    },
   })
-
-  return c.json({ success: true, data: { generatedAt: new Date().toISOString(), items } })
 })
 
-// AI 기반 발주 가이드 생성 (마감 완료 후 즉시 보기 선택 시)
+// AI 발주 가이드 생성 및 DB 저장 (마감 후 호출)
 orderGuideRouter.post('/:storeId/order-guide/generate', authMiddleware, async (c) => {
   const storeId = c.req.param('storeId')
+  const body = await c.req.json<{ closingId?: string }>().catch(() => ({}))
+  const closingId = body.closingId ?? null
 
   // 1. 전체 식자재 + 가장 가까운 유통기한
   const allIngredients = await db
@@ -89,9 +99,14 @@ orderGuideRouter.post('/:storeId/order-guide/generate', authMiddleware, async (c
     .where(eq(ingredients.storeId, storeId))
 
   if (allIngredients.length === 0) {
+    const [guide] = await db.insert(orderGuides).values({
+      storeId,
+      closingId,
+      summary: '등록된 식자재가 없습니다.',
+    }).returning()
     return c.json({
       success: true,
-      data: { generatedAt: new Date().toISOString(), summary: '등록된 식자재가 없습니다.', items: [] },
+      data: { generatedAt: guide.generatedAt.toISOString(), summary: guide.summary, items: [] },
     })
   }
 
@@ -163,13 +178,14 @@ orderGuideRouter.post('/:storeId/order-guide/generate', authMiddleware, async (c
   })
 
   if (targetIngredients.length === 0) {
+    const [guide] = await db.insert(orderGuides).values({
+      storeId,
+      closingId,
+      summary: '현재 발주가 필요한 식자재가 없습니다. 모든 재고가 안전 수준입니다.',
+    }).returning()
     return c.json({
       success: true,
-      data: {
-        generatedAt: new Date().toISOString(),
-        summary: '현재 발주가 필요한 식자재가 없습니다. 모든 재고가 안전 수준입니다.',
-        items: [],
-      },
+      data: { generatedAt: guide.generatedAt.toISOString(), summary: guide.summary, items: [] },
     })
   }
 
@@ -217,7 +233,7 @@ orderGuideRouter.post('/:storeId/order-guide/generate', authMiddleware, async (c
       messages: [
         {
           role: 'system',
-          content: '당신은 한국 카페·식당 발주 관리 전문가입니다. 재고·소비·유통기한·메뉴 데이터를 분석해 구체적이고 실용적인 발주 가이드를 JSON으로 반환합니다.',
+          content: '당신은 한국 카페·식당 발주 관리 전문가입니다. 재고·소비·유통기한·메뉴 데이터를 분석해 구체적이고 실용적인 발주 가이드를 JSON으로 반환합니다. 반드시 한국어로만 작성하세요. 영어, 태국어, 일본어 등 다른 언어 문자를 절대 사용하지 마세요.',
         },
         {
           role: 'user',
@@ -324,9 +340,28 @@ ${contextBlocks}
     }
   })
 
+  // DB 저장
+  const [guide] = await db.insert(orderGuides).values({ storeId, closingId, summary }).returning()
+
+  if (items.length > 0) {
+    await db.insert(orderGuideItems).values(
+      items.map((item) => ({
+        orderGuideId: guide.id,
+        ingredientId: item.ingredientId,
+        ingredientName: item.ingredientName,
+        unit: item.unit,
+        currentStock: String(item.currentStock),
+        safetyStock: String(item.safetyStock),
+        status: item.status,
+        recommendedOrderAmount: String(item.recommendedOrderAmount),
+        reason: item.reason,
+      }))
+    )
+  }
+
   return c.json({
     success: true,
-    data: { generatedAt: new Date().toISOString(), summary, items },
+    data: { generatedAt: guide.generatedAt.toISOString(), summary, items },
   })
 })
 

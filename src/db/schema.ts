@@ -139,6 +139,27 @@ export const closingDeductions = pgTable('closing_deductions', {
   remainingStock: numeric('remaining_stock').notNull(),
 })
 
+export const orderGuides = pgTable('order_guides', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  storeId: uuid('store_id').references(() => stores.id, { onDelete: 'cascade' }).notNull(),
+  closingId: uuid('closing_id').references(() => closings.id, { onDelete: 'cascade' }),
+  summary: text('summary').notNull(),
+  generatedAt: timestamp('generated_at').defaultNow().notNull(),
+})
+
+export const orderGuideItems = pgTable('order_guide_items', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  orderGuideId: uuid('order_guide_id').references(() => orderGuides.id, { onDelete: 'cascade' }).notNull(),
+  ingredientId: uuid('ingredient_id').references(() => ingredients.id, { onDelete: 'cascade' }).notNull(),
+  ingredientName: text('ingredient_name').notNull(),
+  unit: unitEnum('unit').notNull(),
+  currentStock: numeric('current_stock').notNull(),
+  safetyStock: numeric('safety_stock').notNull(),
+  status: text('status').notNull(),
+  recommendedOrderAmount: numeric('recommended_order_amount').notNull(),
+  reason: text('reason').notNull(),
+})
+
 export const storeMembersRelations = relations(storeMembers, ({ one }) => ({
   store: one(stores, { fields: [storeMembers.storeId], references: [stores.id] }),
   user: one(users, { fields: [storeMembers.userId], references: [users.id] }),
