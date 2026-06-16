@@ -5,16 +5,18 @@ import { db } from '../db/index.js'
 import { ingredients, inboundRecords, inboundItems, recipes, menus, stores } from '../db/schema.js'
 import type { AppEnv } from '../types/index.js'
 import { authMiddleware } from '../middleware/auth.js'
-import { eq, and, sql, inArray } from 'drizzle-orm'
+import { eq, and, sql, inArray, desc } from 'drizzle-orm'
 
 const ingredientsRouter = new Hono<AppEnv>()
 
 const ingredientSchema = z.object({
   name: z.string().min(1),
   unit: z.enum(['g', 'ml', '개']),
-  currentStock: z.number().min(0).optional(),
-  safetyStock: z.number().min(0).optional(),
+  currentStock: z.coerce.number().min(0).optional(),
+  safetyStock: z.coerce.number().min(0).optional(),
   isFavorite: z.boolean().optional(),
+  lastInboundDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+  nearestExpiryDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
 })
 
 const inboundSchema = z.object({
@@ -98,18 +100,74 @@ ingredientsRouter.post('/:storeId/ingredients', authMiddleware, zValidator('json
 ingredientsRouter.patch('/:storeId/ingredients/:id', authMiddleware, zValidator('json', ingredientSchema.partial()), async (c) => {
   const { storeId, id } = c.req.param()
   const body = c.req.valid('json')
+
+  // currentStock이 바뀌고 safetyStock을 명시하지 않은 경우 → safetyStockPct로 자동 계산
+  let newSafetyStock: string | undefined
+  if (body.currentStock !== undefined && body.safetyStock === undefined) {
+    const store = await db.select({ safetyStockPct: stores.safetyStockPct })
+      .from(stores)
+      .where(eq(stores.id, storeId))
+      .limit(1)
+    const pct = store[0]?.safetyStockPct
+    if (pct != null) {
+      newSafetyStock = String(Math.round(body.currentStock * pct) / 100)
+    }
+  }
+
   const [updated] = await db.update(ingredients)
     .set({
       ...(body.name && { name: body.name }),
       ...(body.unit && { unit: body.unit }),
       ...(body.currentStock !== undefined && { currentStock: String(body.currentStock) }),
-      ...(body.safetyStock !== undefined && { safetyStock: String(body.safetyStock) }),
+      ...(body.safetyStock !== undefined ? { safetyStock: String(body.safetyStock) } : newSafetyStock !== undefined ? { safetyStock: newSafetyStock } : {}),
       ...(body.isFavorite !== undefined && { isFavorite: body.isFavorite }),
       updatedAt: new Date(),
     })
     .where(and(eq(ingredients.id, id), eq(ingredients.storeId, storeId)))
     .returning()
+
   if (!updated) return c.json({ success: false, error: { code: 'NOT_FOUND', message: '식자재를 찾을 수 없습니다.' } }, 404)
+
+  // 입고날짜 또는 유통기한 수정 요청이 있는 경우
+  if (body.lastInboundDate !== undefined || body.nearestExpiryDate !== undefined) {
+    const [latestItem] = await db
+      .select({ itemId: inboundItems.id, recordId: inboundRecords.id })
+      .from(inboundItems)
+      .innerJoin(inboundRecords, eq(inboundItems.inboundRecordId, inboundRecords.id))
+      .where(eq(inboundItems.ingredientId, id))
+      .orderBy(desc(inboundRecords.createdAt))
+      .limit(1)
+
+    if (latestItem) {
+      // 기존 입고 기록 업데이트
+      if (body.lastInboundDate) {
+        await db.update(inboundRecords)
+          .set({ createdAt: new Date(body.lastInboundDate) })
+          .where(eq(inboundRecords.id, latestItem.recordId))
+      }
+      if (body.nearestExpiryDate !== undefined) {
+        await db.update(inboundItems)
+          .set({ expiryDate: body.nearestExpiryDate })
+          .where(eq(inboundItems.id, latestItem.itemId))
+      }
+    } else {
+      // 입고 이력이 없으면 새로 생성
+      const [newRecord] = await db.insert(inboundRecords)
+        .values({
+          storeId,
+          createdAt: body.lastInboundDate ? new Date(body.lastInboundDate) : new Date(),
+        })
+        .returning()
+
+      await db.insert(inboundItems).values({
+        inboundRecordId: newRecord.id,
+        ingredientId: id,
+        amount: updated.currentStock,
+        expiryDate: body.nearestExpiryDate ?? null,
+      })
+    }
+  }
+
   return c.json({ success: true, data: updated })
 })
 
