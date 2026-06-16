@@ -166,7 +166,7 @@ const closingConfirmSchema = z.object({
   inventoryDeductions: z.array(z.object({
     ingredientId: z.string().uuid(),
     actualUsage: z.number().min(0),
-  })).min(1),
+  })),
 })
 
 closingRouter.post('/:storeId/closing', authMiddleware, zValidator('json', closingConfirmSchema), async (c) => {

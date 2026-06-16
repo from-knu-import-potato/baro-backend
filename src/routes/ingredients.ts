@@ -101,25 +101,12 @@ ingredientsRouter.patch('/:storeId/ingredients/:id', authMiddleware, zValidator(
   const { storeId, id } = c.req.param()
   const body = c.req.valid('json')
 
-  // currentStock이 바뀌고 safetyStock을 명시하지 않은 경우 → safetyStockPct로 자동 계산
-  let newSafetyStock: string | undefined
-  if (body.currentStock !== undefined && body.safetyStock === undefined) {
-    const store = await db.select({ safetyStockPct: stores.safetyStockPct })
-      .from(stores)
-      .where(eq(stores.id, storeId))
-      .limit(1)
-    const pct = store[0]?.safetyStockPct
-    if (pct != null) {
-      newSafetyStock = String(Math.round(body.currentStock * pct) / 100)
-    }
-  }
-
   const [updated] = await db.update(ingredients)
     .set({
       ...(body.name && { name: body.name }),
       ...(body.unit && { unit: body.unit }),
       ...(body.currentStock !== undefined && { currentStock: String(body.currentStock) }),
-      ...(body.safetyStock !== undefined ? { safetyStock: String(body.safetyStock) } : newSafetyStock !== undefined ? { safetyStock: newSafetyStock } : {}),
+      ...(body.safetyStock !== undefined && { safetyStock: String(body.safetyStock) }),
       ...(body.isFavorite !== undefined && { isFavorite: body.isFavorite }),
       updatedAt: new Date(),
     })
@@ -208,12 +195,27 @@ ingredientsRouter.post('/:storeId/ingredients/inbound', authMiddleware, zValidat
     }))
   )
 
-  // currentStock 누적
+  const [store] = await db.select({ safetyStockPct: stores.safetyStockPct })
+    .from(stores)
+    .where(eq(stores.id, storeId))
+    .limit(1)
+  const pct = store?.safetyStockPct
+
+  // currentStock 누적 + safetyStock 재계산
   for (const item of items) {
+    const [ingr] = await db
+      .select({ currentStock: ingredients.currentStock })
+      .from(ingredients)
+      .where(eq(ingredients.id, item.ingredientId))
+
+    const newStock = Number(ingr.currentStock) + item.amount
+    const newSafetyStock = pct != null ? String(Math.round(newStock * pct) / 100) : undefined
+
     await db
       .update(ingredients)
       .set({
-        currentStock: sql`${ingredients.currentStock} + ${String(item.amount)}`,
+        currentStock: String(newStock),
+        ...(newSafetyStock !== undefined && { safetyStock: newSafetyStock }),
         updatedAt: new Date(),
       })
       .where(eq(ingredients.id, item.ingredientId))
