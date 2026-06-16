@@ -5,7 +5,7 @@ import { db } from '../db/index.js'
 import { orders, orderItems, menus, recipes, ingredients, closings, closingDeductions } from '../db/schema.js'
 import type { AppEnv } from '../types/index.js'
 import { authMiddleware } from '../middleware/auth.js'
-import { eq, and, inArray, gte, lt, sql } from 'drizzle-orm'
+import { eq, and, inArray, gte, lt, sql, desc } from 'drizzle-orm'
 
 const closingRouter = new Hono<AppEnv>()
 
@@ -31,6 +31,15 @@ closingRouter.get('/:storeId/closing/preview', authMiddleware, async (c) => {
   const storeId = c.req.param('storeId')
   const { start, end, dateStr } = getKSTTodayRange()
 
+  const [todayClosing] = await db
+    .select({ id: closings.id })
+    .from(closings)
+    .where(and(eq(closings.storeId, storeId), eq(closings.date, dateStr)))
+    .limit(1)
+
+  const isClosed = !!todayClosing
+  const closingId = todayClosing?.id ?? null
+
   const todayOrders = await db.query.orders.findMany({
     where: and(
       eq(orders.storeId, storeId),
@@ -44,7 +53,7 @@ closingRouter.get('/:storeId/closing/preview', authMiddleware, async (c) => {
   if (todayOrders.length === 0) {
     return c.json({
       success: true,
-      data: { date: dateStr, totalRevenue: 0, soldMenus: [], inventoryDeductions: [] },
+      data: { date: dateStr, isClosed, closingId, totalRevenue: 0, soldMenus: [], inventoryDeductions: [] },
     })
   }
 
@@ -124,11 +133,31 @@ closingRouter.get('/:storeId/closing/preview', authMiddleware, async (c) => {
     success: true,
     data: {
       date: dateStr,
+      isClosed,
+      closingId,
       totalRevenue,
       soldMenus,
       inventoryDeductions: [...ingredientMap.values()],
     },
   })
+})
+
+// 마감 이력 조회
+closingRouter.get('/:storeId/closing', authMiddleware, async (c) => {
+  const storeId = c.req.param('storeId')
+
+  const history = await db
+    .select({
+      id: closings.id,
+      date: closings.date,
+      totalRevenue: closings.totalRevenue,
+      createdAt: closings.createdAt,
+    })
+    .from(closings)
+    .where(eq(closings.storeId, storeId))
+    .orderBy(desc(closings.date))
+
+  return c.json({ success: true, data: history })
 })
 
 // 마감 완료 처리
