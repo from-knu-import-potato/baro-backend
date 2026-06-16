@@ -123,6 +123,22 @@ export const inboundItems = pgTable('inbound_items', {
   expiryDate: date('expiry_date'),
 })
 
+export const closings = pgTable('closings', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  storeId: uuid('store_id').references(() => stores.id, { onDelete: 'cascade' }).notNull(),
+  date: date('date').notNull(),
+  totalRevenue: integer('total_revenue').notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+})
+
+export const closingDeductions = pgTable('closing_deductions', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  closingId: uuid('closing_id').references(() => closings.id, { onDelete: 'cascade' }).notNull(),
+  ingredientId: uuid('ingredient_id').references(() => ingredients.id).notNull(),
+  usedAmount: numeric('used_amount').notNull(),
+  remainingStock: numeric('remaining_stock').notNull(),
+})
+
 export const storeMembersRelations = relations(storeMembers, ({ one }) => ({
   store: one(stores, { fields: [storeMembers.storeId], references: [stores.id] }),
   user: one(users, { fields: [storeMembers.userId], references: [users.id] }),
