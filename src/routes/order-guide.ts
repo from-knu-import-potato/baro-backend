@@ -77,7 +77,7 @@ orderGuideRouter.get('/:storeId/order-guide', authMiddleware, async (c) => {
 // AI 발주 가이드 생성 및 DB 저장 (마감 후 호출)
 orderGuideRouter.post('/:storeId/order-guide/generate', authMiddleware, async (c) => {
   const storeId = c.req.param('storeId')
-  const body = await c.req.json<{ closingId?: string }>().catch(() => ({}))
+  const body = await c.req.json<{ closingId?: string }>().catch(() => ({ closingId: undefined }))
   const closingId = body.closingId ?? null
 
   // 1. 전체 식자재 + 가장 가까운 유통기한
