@@ -2,10 +2,11 @@ import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import { db } from '../db/index.js'
-import { stores, storeMembers, operatingHours, menus, ingredients, recipes } from '../db/schema.js'
+import { stores, storeMembers, operatingHours, menus, ingredients, recipes, users } from '../db/schema.js'
 import type { AppEnv } from '../types/index.js'
 import { authMiddleware } from '../middleware/auth.js'
-import { eq, sql } from 'drizzle-orm'
+import { verifyAccessToken } from '../lib/jwt.js'
+import { eq, sql, and } from 'drizzle-orm'
 
 const storesRouter = new Hono<AppEnv>()
 
@@ -21,7 +22,6 @@ const DAY_MAP: Record<string, number> = {
 
 const setupSchema = z.object({
   basicInfo: z.object({
-    ownerName: z.string(),
     storeName: z.string().min(1),
     businessType: z.enum(['franchise', 'directly-operated', 'individual']),
     category: z.enum(['korean', 'western', 'cafe', 'bunsik', 'japanese', 'chinese', 'fastfood', 'other']),
@@ -60,7 +60,7 @@ storesRouter.post('/setup', authMiddleware, zValidator('json', setupSchema), asy
 
   const [store] = await db.insert(stores).values({
     name: data.basicInfo.storeName,
-    ownerName: data.basicInfo.ownerName,
+    ownerId: userId,
     businessType: data.basicInfo.businessType,
     category: data.basicInfo.category,
   }).returning()
@@ -132,16 +132,67 @@ storesRouter.post('/setup', authMiddleware, zValidator('json', setupSchema), asy
 
 storesRouter.get('/:storeId', async (c) => {
   const storeId = c.req.param('storeId')
-  const store = await db.query.stores.findFirst({ where: eq(stores.id, storeId) })
-  if (!store) {
+
+  let currentUserId: string | null = null
+  const authorization = c.req.header('Authorization')
+  if (authorization?.startsWith('Bearer ')) {
+    try {
+      const payload = await verifyAccessToken(authorization.slice(7))
+      currentUserId = payload.userId
+    } catch {
+      // 유효하지 않은 토큰은 비인증으로 처리
+    }
+  }
+
+  const [result] = await db
+    .select({
+      id: stores.id,
+      name: stores.name,
+      ownerId: stores.ownerId,
+      ownerName: users.name,
+      ownerProfileImage: users.profileImage,
+      businessType: stores.businessType,
+      category: stores.category,
+      inviteCode: stores.inviteCode,
+      memo: stores.memo,
+      safetyStockPct: stores.safetyStockPct,
+      themeColor: stores.themeColor,
+      layout: stores.layout,
+      bannerImageUrl: stores.bannerImageUrl,
+      bannerPosition: stores.bannerPosition,
+      createdAt: stores.createdAt,
+      updatedAt: stores.updatedAt,
+    })
+    .from(stores)
+    .leftJoin(users, eq(stores.ownerId, users.id))
+    .where(eq(stores.id, storeId))
+
+  if (!result) {
     return c.json({ success: false, error: { code: 'NOT_FOUND', message: '가게를 찾을 수 없습니다.' } }, 404)
   }
-  return c.json({ success: true, data: store })
+
+  let myRole: 'owner' | 'staff' | null = null
+  if (currentUserId) {
+    const member = await db.query.storeMembers.findFirst({
+      where: and(eq(storeMembers.storeId, storeId), eq(storeMembers.userId, currentUserId)),
+    })
+    myRole = member?.role ?? null
+  }
+
+  const { ownerName, ownerProfileImage, ...storeData } = result
+  return c.json({
+    success: true,
+    data: {
+      ...storeData,
+      owner: { id: storeData.ownerId, name: ownerName, profileImage: ownerProfileImage },
+      myRole,
+    },
+  })
 })
 
 const updateStoreSchema = z.object({
   storeName: z.string().min(1).optional(),
-  ownerName: z.string().optional(),
+  ownerId: z.string().uuid().optional(),
   businessType: z.enum(['franchise', 'directly-operated', 'individual']).optional(),
   category: z.enum(['korean', 'western', 'cafe', 'bunsik', 'japanese', 'chinese', 'fastfood', 'other']).optional(),
   memo: z.string().nullable().optional(),
@@ -152,10 +203,19 @@ storesRouter.patch('/:storeId', authMiddleware, zValidator('json', updateStoreSc
   const storeId = c.req.param('storeId')
   const data = c.req.valid('json')
 
+  if (data.ownerId) {
+    const member = await db.query.storeMembers.findFirst({
+      where: and(eq(storeMembers.storeId, storeId), eq(storeMembers.userId, data.ownerId)),
+    })
+    if (!member) {
+      return c.json({ success: false, error: { code: 'INVALID_OWNER', message: '해당 사용자는 가게 멤버가 아닙니다.' } }, 400)
+    }
+  }
+
   const [updated] = await db.update(stores)
     .set({
       ...(data.storeName && { name: data.storeName }),
-      ...(data.ownerName && { ownerName: data.ownerName }),
+      ...(data.ownerId && { ownerId: data.ownerId }),
       ...(data.businessType && { businessType: data.businessType }),
       ...(data.category && { category: data.category }),
       ...('memo' in data && { memo: data.memo ?? null }),

@@ -18,7 +18,7 @@ export const users = pgTable('users', {
 export const stores = pgTable('stores', {
   id: uuid('id').primaryKey().defaultRandom(),
   name: text('name').notNull(),
-  ownerName: text('owner_name').notNull(),
+  ownerId: uuid('owner_id').references(() => users.id).notNull(),
   businessType: text('business_type'),
   category: text('category'),
   inviteCode: text('invite_code').unique(),
@@ -159,6 +159,10 @@ export const orderGuideItems = pgTable('order_guide_items', {
   recommendedOrderAmount: numeric('recommended_order_amount').notNull(),
   reason: text('reason').notNull(),
 })
+
+export const storesRelations = relations(stores, ({ one }) => ({
+  owner: one(users, { fields: [stores.ownerId], references: [users.id] }),
+}))
 
 export const storeMembersRelations = relations(storeMembers, ({ one }) => ({
   store: one(stores, { fields: [storeMembers.storeId], references: [stores.id] }),
