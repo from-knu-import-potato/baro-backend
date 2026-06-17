@@ -97,6 +97,7 @@ export const orders = pgTable('orders', {
   tableNumber: integer('table_number').notNull(),
   status: orderStatusEnum('status').default('pending').notNull(),
   totalPrice: integer('total_price').notNull(),
+  customerNote: text('customer_note'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 })
