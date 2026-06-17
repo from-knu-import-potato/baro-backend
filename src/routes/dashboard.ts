@@ -1,9 +1,10 @@
 import { Hono } from 'hono'
 import { db } from '../db/index.js'
-import { orders, ingredients, inboundItems, inboundRecords } from '../db/schema.js'
+import { orders, ingredients, inboundItems, inboundRecords, closings } from '../db/schema.js'
 import type { AppEnv } from '../types/index.js'
 import { authMiddleware } from '../middleware/auth.js'
 import { eq, and, gte, lt, ne, count, sql } from 'drizzle-orm'
+import { toKSTDateStr } from '../lib/kst.js'
 
 const dashboardRouter = new Hono<AppEnv>()
 
@@ -65,6 +66,19 @@ dashboardRouter.get('/:storeId/dashboard/stats', authMiddleware, async (c) => {
   const monthlyConsumptionChange =
     lastMonth === 0 ? 0 : Math.round(((thisMonth - lastMonth) / lastMonth) * 1000) / 10
 
+  // KST 6시 이후이고 어제 마감 기록이 없으면 missedClosing: true
+  const kstHour = new Date(now.getTime() + 9 * 60 * 60 * 1000).getUTCHours()
+  let missedClosing = false
+  if (kstHour >= 6) {
+    const yesterday = toKSTDateStr(new Date(now.getTime() - 86400000))
+    const [yesterdayClosing] = await db
+      .select({ id: closings.id })
+      .from(closings)
+      .where(and(eq(closings.storeId, storeId), eq(closings.date, yesterday)))
+      .limit(1)
+    missedClosing = !yesterdayClosing
+  }
+
   return c.json({
     success: true,
     data: {
@@ -73,6 +87,7 @@ dashboardRouter.get('/:storeId/dashboard/stats', authMiddleware, async (c) => {
       aiOrderRecommendations: lowStockCount,
       monthlyConsumption: thisMonth,
       monthlyConsumptionChange,
+      missedClosing,
       lastUpdated: now.toISOString(),
     },
   })
