@@ -16,6 +16,7 @@ const createOrderSchema = z.object({
     menuId: z.string().uuid(),
     quantity: z.number().int().min(1),
   })).min(1),
+  customerNote: z.string().max(200).optional(),
 })
 
 const updateStatusSchema = z.object({
@@ -36,7 +37,7 @@ ordersRouter.get('/:storeId/orders', authMiddleware, async (c) => {
 // 주문 생성 (손님, 인증 불필요)
 ordersRouter.post('/:storeId/orders', zValidator('json', createOrderSchema), async (c) => {
   const storeId = c.req.param('storeId')
-  const { tableNumber, items } = c.req.valid('json')
+  const { tableNumber, items, customerNote } = c.req.valid('json')
 
   const menuIds = items.map((i) => i.menuId)
   const menuList = await db.select().from(menus).where(
@@ -52,7 +53,7 @@ ordersRouter.post('/:storeId/orders', zValidator('json', createOrderSchema), asy
     return sum + menuMap.get(item.menuId)!.price * item.quantity
   }, 0)
 
-  const [order] = await db.insert(orders).values({ storeId, tableNumber, totalPrice }).returning()
+  const [order] = await db.insert(orders).values({ storeId, tableNumber, totalPrice, customerNote }).returning()
 
   await db.insert(orderItems).values(
     items.map((item) => ({
