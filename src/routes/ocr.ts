@@ -1,7 +1,10 @@
 import { Hono } from "hono";
 import Groq from "groq-sdk";
+import { eq, and } from "drizzle-orm";
 import type { AppEnv } from "../types/index.js";
 import { authMiddleware } from "../middleware/auth.js";
+import { db } from "../db/index.js";
+import { ingredients } from "../db/schema.js";
 
 const ocrRouter = new Hono<AppEnv>();
 
@@ -12,9 +15,11 @@ type OcrItem = {
   amount: number;
   unit: "g" | "ml" | "개";
   unitPrice: number | null;
+  ingredientId: string | null;
 };
 
 ocrRouter.post("/:storeId/ocr/upload", authMiddleware, async (c) => {
+  const { storeId } = c.req.param();
   const body = await c.req.parseBody();
   const file = body["file"];
 
@@ -27,6 +32,13 @@ ocrRouter.post("/:storeId/ocr/upload", authMiddleware, async (c) => {
       400,
     );
   }
+
+  const storeIngredients = await db
+    .select({ id: ingredients.id, name: ingredients.name })
+    .from(ingredients)
+    .where(
+      and(eq(ingredients.storeId, storeId), eq(ingredients.isArchived, false)),
+    );
 
   const arrayBuffer = await file.arrayBuffer();
   const base64 = Buffer.from(arrayBuffer).toString("base64");
@@ -74,6 +86,11 @@ ocrRouter.post("/:storeId/ocr/upload", authMiddleware, async (c) => {
     );
   }
 
+  const ingredientListText =
+    storeIngredients.length > 0
+      ? `\n[이 가게에 등록된 실제 식자재 목록]\n${storeIngredients.map((i) => i.name).join(", ")}\n위 목록과 동일하거나 OCR 오인식으로 유사하게 읽힌 항목은 반드시 목록의 정확한 이름으로 교정할 것.\n`
+      : "";
+
   const completion = await groq.chat.completions.create({
     model: "llama-3.3-70b-versatile",
     messages: [
@@ -85,7 +102,7 @@ ocrRouter.post("/:storeId/ocr/upload", authMiddleware, async (c) => {
       {
         role: "user",
         content: `다음은 한국 거래명세서에서 OCR로 추출한 텍스트입니다. 식자재/상품 항목만 추출해서 JSON 배열로 반환해주세요.
-
+${ingredientListText}
 [규칙]
 1. name: 괄호 안 규격 정보 제거하고 순수 품목명만. 예) "바게트빵(185G*5EA)" → "바게트빵", "생크림(매일 500ml)" → "생크림". 식자재답지 않은 단어는 OCR 오인식으로 판단하고 올바른 식자재명으로 교정.
 2. amount: 수량 열(EA/BOX/개 기준)의 숫자. 예) "185G*5EA" → 5, "3BOX" → 3
@@ -110,9 +127,9 @@ ${rawText}`,
     .replace(/```json|```/g, "")
     .trim();
 
-  let items: OcrItem[];
+  let parsed: Omit<OcrItem, "ingredientId">[];
   try {
-    items = JSON.parse(groqText) as OcrItem[];
+    parsed = JSON.parse(groqText) as Omit<OcrItem, "ingredientId">[];
   } catch {
     return c.json(
       {
@@ -122,6 +139,13 @@ ${rawText}`,
       500,
     );
   }
+
+  const ingredientMap = new Map(storeIngredients.map((i) => [i.name, i.id]));
+
+  const items: OcrItem[] = parsed.map((item) => ({
+    ...item,
+    ingredientId: ingredientMap.get(item.name) ?? null,
+  }));
 
   return c.json({ success: true, data: { items, rawText } });
 });
