@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import Groq from "groq-sdk";
+import { GoogleGenAI } from "@google/genai";
 import { eq, and } from "drizzle-orm";
 import type { AppEnv } from "../types/index.js";
 import { authMiddleware } from "../middleware/auth.js";
@@ -8,7 +8,7 @@ import { ingredients } from "../db/schema.js";
 
 const ocrRouter = new Hono<AppEnv>();
 
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY! });
+const genai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
 
 type OcrItem = {
   name: string;
@@ -91,17 +91,9 @@ ocrRouter.post("/:storeId/ocr/upload", authMiddleware, async (c) => {
       ? `\n[이 가게에 등록된 실제 식자재 목록]\n${storeIngredients.map((i) => i.name).join(", ")}\n위 목록과 동일하거나 OCR 오인식으로 유사하게 읽힌 항목은 반드시 목록의 정확한 이름으로 교정할 것.\n`
       : "";
 
-  const completion = await groq.chat.completions.create({
-    model: "llama-3.3-70b-versatile",
-    messages: [
-      {
-        role: "system",
-        content:
-          "당신은 한국 카페·식당 식자재 전문가입니다. 모든 항목은 반드시 실제 식자재·식품·소모품 이름이어야 합니다. OCR 오인식으로 식자재답지 않은 단어가 나오면 가장 가까운 실제 식자재 이름으로 교정하세요.",
-      },
-      {
-        role: "user",
-        content: `다음은 한국 거래명세서에서 OCR로 추출한 텍스트입니다. 식자재/상품 항목만 추출해서 JSON 배열로 반환해주세요.
+  const prompt = `당신은 한국 카페·식당 식자재 전문가입니다. 모든 항목은 반드시 실제 식자재·식품·소모품 이름이어야 합니다. OCR 오인식으로 식자재답지 않은 단어가 나오면 가장 가까운 실제 식자재 이름으로 교정하세요.
+
+다음은 한국 거래명세서에서 OCR로 추출한 텍스트입니다. 식자재/상품 항목만 추출해서 JSON 배열로 반환해주세요.
 ${ingredientListText}
 [규칙]
 1. name: 괄호 안 규격 정보 제거하고 순수 품목명만. 예) "바게트빵(185G*5EA)" → "바게트빵", "생크림(매일 500ml)" → "생크림". 식자재답지 않은 단어는 OCR 오인식으로 판단하고 올바른 식자재명으로 교정.
@@ -116,20 +108,22 @@ ${ingredientListText}
 6. JSON 배열만 반환. 설명 금지.
 
 텍스트:
-${rawText}`,
-      },
-    ],
-    temperature: 0,
+${rawText}`;
+
+  const completion = await genai.models.generateContent({
+    model: "gemini-2.5-flash",
+    contents: prompt,
+    config: { temperature: 0 },
   });
 
-  const groqText = (completion.choices[0]?.message?.content ?? "")
+  const geminiText = (completion.text ?? "")
     .trim()
     .replace(/```json|```/g, "")
     .trim();
 
   let parsed: Omit<OcrItem, "ingredientId">[];
   try {
-    parsed = JSON.parse(groqText) as Omit<OcrItem, "ingredientId">[];
+    parsed = JSON.parse(geminiText) as Omit<OcrItem, "ingredientId">[];
   } catch {
     return c.json(
       {
