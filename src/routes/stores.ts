@@ -1,0 +1,245 @@
+import { Hono } from 'hono'
+import { zValidator } from '@hono/zod-validator'
+import { z } from 'zod'
+import { db } from '../db/index.js'
+import { stores, storeMembers, operatingHours, menus, ingredients, recipes, users } from '../db/schema.js'
+import type { AppEnv } from '../types/index.js'
+import { authMiddleware } from '../middleware/auth.js'
+import { verifyAccessToken } from '../lib/jwt.js'
+import { eq, sql, and } from 'drizzle-orm'
+
+const storesRouter = new Hono<AppEnv>()
+
+const DAY_MAP: Record<string, number> = {
+  sunday: 0,
+  monday: 1,
+  tuesday: 2,
+  wednesday: 3,
+  thursday: 4,
+  friday: 5,
+  saturday: 6,
+}
+
+const setupSchema = z.object({
+  basicInfo: z.object({
+    storeName: z.string().min(1),
+    businessType: z.enum(['franchise', 'directly-operated', 'individual']),
+    category: z.enum(['korean', 'western', 'cafe', 'bunsik', 'japanese', 'chinese', 'fastfood', 'other']),
+  }),
+  operatingHours: z.array(z.object({
+    dayOfWeek: z.enum(['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']),
+    isOpen: z.boolean(),
+    openTime: z.string(),
+    closeTime: z.string(),
+  })),
+  menuItems: z.array(z.object({
+    id: z.string(),
+    name: z.string(),
+    description: z.string().optional(),
+    price: z.number(),
+    isFeatured: z.boolean().optional(),
+    imageUrl: z.string().optional(),
+  })),
+  ingredients: z.array(z.object({
+    id: z.string(),
+    name: z.string(),
+    unit: z.enum(['g', 'ml', '개']),
+  })),
+  recipes: z.array(z.object({
+    menuItemId: z.string(),
+    ingredients: z.array(z.object({
+      ingredientId: z.string(),
+      amount: z.number(),
+    })),
+  })),
+})
+
+storesRouter.post('/setup', authMiddleware, zValidator('json', setupSchema), async (c) => {
+  const userId = c.get('userId')
+  const data = c.req.valid('json')
+
+  const [store] = await db.insert(stores).values({
+    name: data.basicInfo.storeName,
+    ownerId: userId,
+    businessType: data.basicInfo.businessType,
+    category: data.basicInfo.category,
+  }).returning()
+
+  await db.insert(storeMembers).values({
+    storeId: store.id,
+    userId,
+    role: 'owner',
+  })
+
+  if (data.operatingHours.length > 0) {
+    await db.insert(operatingHours).values(
+      data.operatingHours.map((oh) => ({
+        storeId: store.id,
+        dayOfWeek: DAY_MAP[oh.dayOfWeek],
+        openTime: oh.isOpen ? oh.openTime : null,
+        closeTime: oh.isOpen ? oh.closeTime : null,
+        isClosed: !oh.isOpen,
+      }))
+    )
+  }
+
+  const menuIdMap: Record<string, string> = {}
+  if (data.menuItems.length > 0) {
+    const insertedMenus = await db.insert(menus).values(
+      data.menuItems.map((m) => ({
+        storeId: store.id,
+        name: m.name,
+        price: m.price,
+        description: m.description ?? null,
+        imageUrl: m.imageUrl ?? null,
+      }))
+    ).returning()
+    insertedMenus.forEach((menu, i) => {
+      menuIdMap[data.menuItems[i].id] = menu.id
+    })
+  }
+
+  const ingredientIdMap: Record<string, string> = {}
+  if (data.ingredients.length > 0) {
+    const insertedIngredients = await db.insert(ingredients).values(
+      data.ingredients.map((ing) => ({
+        storeId: store.id,
+        name: ing.name,
+        unit: ing.unit as 'g' | 'ml' | '개',
+      }))
+    ).returning()
+    insertedIngredients.forEach((ing, i) => {
+      ingredientIdMap[data.ingredients[i].id] = ing.id
+    })
+  }
+
+  for (const recipe of data.recipes) {
+    const dbMenuId = menuIdMap[recipe.menuItemId]
+    if (!dbMenuId) continue
+    for (const ri of recipe.ingredients) {
+      const dbIngredientId = ingredientIdMap[ri.ingredientId]
+      if (!dbIngredientId) continue
+      await db.insert(recipes).values({
+        menuId: dbMenuId,
+        ingredientId: dbIngredientId,
+        amount: String(ri.amount),
+      })
+    }
+  }
+
+  return c.json({ success: true, data: { storeId: store.id } }, 201)
+})
+
+storesRouter.get('/:storeId', async (c) => {
+  const storeId = c.req.param('storeId')
+
+  let currentUserId: string | null = null
+  const authorization = c.req.header('Authorization')
+  if (authorization?.startsWith('Bearer ')) {
+    try {
+      const payload = await verifyAccessToken(authorization.slice(7))
+      currentUserId = payload.userId
+    } catch {
+      // 유효하지 않은 토큰은 비인증으로 처리
+    }
+  }
+
+  const [result] = await db
+    .select({
+      id: stores.id,
+      name: stores.name,
+      ownerId: stores.ownerId,
+      ownerName: users.name,
+      ownerProfileImage: users.profileImage,
+      businessType: stores.businessType,
+      category: stores.category,
+      inviteCode: stores.inviteCode,
+      memo: stores.memo,
+      safetyStockPct: stores.safetyStockPct,
+      themeColor: stores.themeColor,
+      layout: stores.layout,
+      bannerImageUrl: stores.bannerImageUrl,
+      bannerPosition: stores.bannerPosition,
+      createdAt: stores.createdAt,
+      updatedAt: stores.updatedAt,
+    })
+    .from(stores)
+    .leftJoin(users, eq(stores.ownerId, users.id))
+    .where(eq(stores.id, storeId))
+
+  if (!result) {
+    return c.json({ success: false, error: { code: 'NOT_FOUND', message: '가게를 찾을 수 없습니다.' } }, 404)
+  }
+
+  let myRole: 'owner' | 'staff' | null = null
+  if (currentUserId) {
+    const member = await db.query.storeMembers.findFirst({
+      where: and(eq(storeMembers.storeId, storeId), eq(storeMembers.userId, currentUserId)),
+    })
+    myRole = member?.role ?? null
+  }
+
+  const { ownerName, ownerProfileImage, ...storeData } = result
+  return c.json({
+    success: true,
+    data: {
+      ...storeData,
+      owner: { id: storeData.ownerId, name: ownerName, profileImage: ownerProfileImage },
+      myRole,
+    },
+  })
+})
+
+const updateStoreSchema = z.object({
+  storeName: z.string().min(1).optional(),
+  ownerId: z.string().uuid().optional(),
+  businessType: z.enum(['franchise', 'directly-operated', 'individual']).optional(),
+  category: z.enum(['korean', 'western', 'cafe', 'bunsik', 'japanese', 'chinese', 'fastfood', 'other']).optional(),
+  memo: z.string().nullable().optional(),
+  safetyStockPct: z.number().int().min(0).max(100).nullable().optional(),
+})
+
+storesRouter.patch('/:storeId', authMiddleware, zValidator('json', updateStoreSchema), async (c) => {
+  const storeId = c.req.param('storeId')
+  const data = c.req.valid('json')
+
+  if (data.ownerId) {
+    const member = await db.query.storeMembers.findFirst({
+      where: and(eq(storeMembers.storeId, storeId), eq(storeMembers.userId, data.ownerId)),
+    })
+    if (!member) {
+      return c.json({ success: false, error: { code: 'INVALID_OWNER', message: '해당 사용자는 가게 멤버가 아닙니다.' } }, 400)
+    }
+  }
+
+  const [updated] = await db.update(stores)
+    .set({
+      ...(data.storeName && { name: data.storeName }),
+      ...(data.ownerId && { ownerId: data.ownerId }),
+      ...(data.businessType && { businessType: data.businessType }),
+      ...(data.category && { category: data.category }),
+      ...('memo' in data && { memo: data.memo ?? null }),
+      ...('safetyStockPct' in data && { safetyStockPct: data.safetyStockPct ?? null }),
+      updatedAt: new Date(),
+    })
+    .where(eq(stores.id, storeId))
+    .returning()
+
+  if (!updated) {
+    return c.json({ success: false, error: { code: 'NOT_FOUND', message: '가게를 찾을 수 없습니다.' } }, 404)
+  }
+
+  // safetyStockPct가 변경된 경우 전체 식자재 안전재고 일괄 업데이트
+  if ('safetyStockPct' in data && data.safetyStockPct != null) {
+    await db.update(ingredients)
+      .set({
+        safetyStock: sql`ROUND(${ingredients.currentStock} * ${data.safetyStockPct} / 100.0, 2)`,
+        updatedAt: new Date(),
+      })
+      .where(eq(ingredients.storeId, storeId))
+  }
+
+  return c.json({ success: true, data: updated })
+})
+
+export default storesRouter
