@@ -2,7 +2,7 @@ import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import { db } from '../db/index.js'
-import { ingredients, inboundRecords, inboundItems, recipes, menus, stores } from '../db/schema.js'
+import { ingredients, inboundRecords, inboundItems, closingDeductions, recipes, menus, stores } from '../db/schema.js'
 import type { AppEnv } from '../types/index.js'
 import { authMiddleware } from '../middleware/auth.js'
 import { eq, and, sql, inArray, desc } from 'drizzle-orm'
@@ -15,6 +15,7 @@ const ingredientSchema = z.object({
   currentStock: z.coerce.number().min(0).optional(),
   safetyStock: z.coerce.number().min(0).optional(),
   isFavorite: z.boolean().optional(),
+  isArchived: z.boolean().optional(),
   lastInboundDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   nearestExpiryDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
 })
@@ -29,8 +30,10 @@ const inboundSchema = z.object({
 })
 
 // 재고 목록 조회 (식자재별 가장 가까운 유통기한 포함)
+// ?archived=true 로 보관된 식자재 조회
 ingredientsRouter.get('/:storeId/ingredients', authMiddleware, async (c) => {
   const storeId = c.req.param('storeId')
+  const archived = c.req.query('archived') === 'true'
 
   const list = await db
     .select({
@@ -41,6 +44,7 @@ ingredientsRouter.get('/:storeId/ingredients', authMiddleware, async (c) => {
       currentStock: ingredients.currentStock,
       safetyStock: ingredients.safetyStock,
       isFavorite: ingredients.isFavorite,
+      isArchived: ingredients.isArchived,
       createdAt: ingredients.createdAt,
       updatedAt: ingredients.updatedAt,
       nearestExpiryDate: sql<string | null>`(
@@ -63,7 +67,7 @@ ingredientsRouter.get('/:storeId/ingredients', authMiddleware, async (c) => {
       )`,
     })
     .from(ingredients)
-    .where(eq(ingredients.storeId, storeId))
+    .where(and(eq(ingredients.storeId, storeId), eq(ingredients.isArchived, archived)))
 
   return c.json({ success: true, data: list })
 })
@@ -108,6 +112,7 @@ ingredientsRouter.patch('/:storeId/ingredients/:id', authMiddleware, zValidator(
       ...(body.currentStock !== undefined && { currentStock: String(body.currentStock) }),
       ...(body.safetyStock !== undefined && { safetyStock: String(body.safetyStock) }),
       ...(body.isFavorite !== undefined && { isFavorite: body.isFavorite }),
+      ...(body.isArchived !== undefined && { isArchived: body.isArchived }),
       updatedAt: new Date(),
     })
     .where(and(eq(ingredients.id, id), eq(ingredients.storeId, storeId)))
@@ -160,6 +165,34 @@ ingredientsRouter.patch('/:storeId/ingredients/:id', authMiddleware, zValidator(
 
 ingredientsRouter.delete('/:storeId/ingredients/:id', authMiddleware, async (c) => {
   const { storeId, id } = c.req.param()
+  const force = c.req.query('force') === 'true'
+
+  const [{ inboundCount }] = await db
+    .select({ inboundCount: sql<number>`count(*)::int` })
+    .from(inboundItems)
+    .where(eq(inboundItems.ingredientId, id))
+
+  const [{ closingCount }] = await db
+    .select({ closingCount: sql<number>`count(*)::int` })
+    .from(closingDeductions)
+    .where(eq(closingDeductions.ingredientId, id))
+
+  if ((inboundCount > 0 || closingCount > 0) && !force) {
+    return c.json({
+      success: false,
+      error: {
+        code: 'CONFLICT',
+        message: '관련 기록이 있는 식자재입니다. 강제 삭제하려면 force=true 를 사용하세요.',
+        detail: { inboundCount, closingCount },
+      },
+    }, 409)
+  }
+
+  if (force) {
+    await db.delete(inboundItems).where(eq(inboundItems.ingredientId, id))
+    await db.delete(closingDeductions).where(eq(closingDeductions.ingredientId, id))
+  }
+
   await db.delete(ingredients).where(and(eq(ingredients.id, id), eq(ingredients.storeId, storeId)))
   return c.json({ success: true, data: null })
 })
