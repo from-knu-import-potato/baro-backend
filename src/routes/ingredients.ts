@@ -21,11 +21,21 @@ const ingredientSchema = z.object({
 })
 
 const inboundSchema = z.object({
+  metadata: z.object({
+    transactionDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+    supplierName: z.string().nullable().optional(),
+    invoiceNumber: z.string().nullable().optional(),
+    totalSupplyAmount: z.number().nullable().optional(),
+    totalTax: z.number().nullable().optional(),
+    totalAmount: z.number().nullable().optional(),
+  }).optional(),
   items: z.array(z.object({
     ingredientId: z.string().uuid(),
     amount: z.number().positive(),
     unitPrice: z.number().positive().nullable().optional(),
+    supplyPrice: z.number().positive().nullable().optional(),
     expiryDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+    memo: z.string().nullable().optional(),
   })).min(1),
 })
 
@@ -200,7 +210,7 @@ ingredientsRouter.delete('/:storeId/ingredients/:id', authMiddleware, async (c) 
 // 입고 처리 (OCR 확정 후 호출)
 ingredientsRouter.post('/:storeId/ingredients/inbound', authMiddleware, zValidator('json', inboundSchema), async (c) => {
   const storeId = c.req.param('storeId')
-  const { items } = c.req.valid('json')
+  const { metadata, items } = c.req.valid('json')
 
   // 해당 가게 식자재인지 검증
   const ingredientIds = items.map((i) => i.ingredientId)
@@ -216,7 +226,15 @@ ingredientsRouter.post('/:storeId/ingredients/inbound', authMiddleware, zValidat
     return c.json({ success: false, error: { code: 'BAD_REQUEST', message: '유효하지 않은 식자재가 포함되어 있습니다.' } }, 400)
   }
 
-  const [record] = await db.insert(inboundRecords).values({ storeId }).returning()
+  const [record] = await db.insert(inboundRecords).values({
+    storeId,
+    transactionDate: metadata?.transactionDate ?? null,
+    supplierName: metadata?.supplierName ?? null,
+    invoiceNumber: metadata?.invoiceNumber ?? null,
+    totalSupplyAmount: metadata?.totalSupplyAmount != null ? String(metadata.totalSupplyAmount) : null,
+    totalTax: metadata?.totalTax != null ? String(metadata.totalTax) : null,
+    totalAmount: metadata?.totalAmount != null ? String(metadata.totalAmount) : null,
+  }).returning()
 
   await db.insert(inboundItems).values(
     items.map((item) => ({
@@ -224,7 +242,9 @@ ingredientsRouter.post('/:storeId/ingredients/inbound', authMiddleware, zValidat
       ingredientId: item.ingredientId,
       amount: String(item.amount),
       unitPrice: item.unitPrice != null ? String(item.unitPrice) : null,
+      supplyPrice: item.supplyPrice != null ? String(item.supplyPrice) : null,
       expiryDate: item.expiryDate ?? null,
+      memo: item.memo ?? null,
     }))
   )
 
