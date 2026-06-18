@@ -113,6 +113,12 @@ export const orderItems = pgTable('order_items', {
 export const inboundRecords = pgTable('inbound_records', {
   id: uuid('id').primaryKey().defaultRandom(),
   storeId: uuid('store_id').references(() => stores.id, { onDelete: 'cascade' }).notNull(),
+  transactionDate: date('transaction_date'),
+  supplierName: text('supplier_name'),
+  invoiceNumber: text('invoice_number'),
+  totalSupplyAmount: numeric('total_supply_amount'),
+  totalTax: numeric('total_tax'),
+  totalAmount: numeric('total_amount'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 })
 
@@ -122,7 +128,9 @@ export const inboundItems = pgTable('inbound_items', {
   ingredientId: uuid('ingredient_id').references(() => ingredients.id).notNull(),
   amount: numeric('amount').notNull(),
   unitPrice: numeric('unit_price'),
+  supplyPrice: numeric('supply_price'),
   expiryDate: date('expiry_date'),
+  memo: text('memo'),
 })
 
 export const closings = pgTable('closings', {
