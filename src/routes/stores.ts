@@ -130,6 +130,8 @@ storesRouter.post('/setup', authMiddleware, zValidator('json', setupSchema), asy
   return c.json({ success: true, data: { storeId: store.id } }, 201)
 })
 
+const DAY_OF_WEEK_LABELS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'] as const
+
 storesRouter.get('/:storeId', async (c) => {
   const storeId = c.req.param('storeId')
 
@@ -179,6 +181,19 @@ storesRouter.get('/:storeId', async (c) => {
     myRole = member?.role ?? null
   }
 
+  const hours = await db
+    .select()
+    .from(operatingHours)
+    .where(eq(operatingHours.storeId, storeId))
+    .orderBy(operatingHours.dayOfWeek)
+
+  const operatingHoursList = hours.map((h) => ({
+    dayOfWeek: DAY_OF_WEEK_LABELS[h.dayOfWeek],
+    isOpen: !h.isClosed,
+    openTime: h.openTime ?? null,
+    closeTime: h.closeTime ?? null,
+  }))
+
   const { ownerName, ownerProfileImage, ...storeData } = result
   return c.json({
     success: true,
@@ -186,6 +201,7 @@ storesRouter.get('/:storeId', async (c) => {
       ...storeData,
       owner: { id: storeData.ownerId, name: ownerName, profileImage: ownerProfileImage },
       myRole,
+      operatingHours: operatingHoursList,
     },
   })
 })
