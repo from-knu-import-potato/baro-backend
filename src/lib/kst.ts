@@ -11,11 +11,24 @@ export function getKSTDateRange(dateStr: string): { start: Date; end: Date } {
   return { start: startUTC, end: new Date(startUTC.getTime() + 86400000) }
 }
 
-// 자정~오전 6시(KST) → 어제, 그 외 → 오늘
-export function getAutoClosingDateStr(): string {
+// openTime(HH:mm) 기준으로 businessDate 계산
+// 현재 KST 시각 < openTime → 어제, 이상 → 오늘
+// openTime이 null(휴무일)이면 오늘 캘린더 날짜 반환
+export function getBusinessDateStr(openTime: string | null): string {
   const nowUTC = new Date()
-  const kstHour = new Date(nowUTC.getTime() + KST_OFFSET_MS).getUTCHours()
-  if (kstHour < 6) {
+
+  if (!openTime) {
+    return toKSTDateStr(nowUTC)
+  }
+
+  const [openHour, openMinute] = openTime.split(':').map(Number)
+  const kstNow = new Date(nowUTC.getTime() + KST_OFFSET_MS)
+  const kstHour = kstNow.getUTCHours()
+  const kstMinute = kstNow.getUTCMinutes()
+
+  const isBeforeOpen = kstHour < openHour || (kstHour === openHour && kstMinute < openMinute)
+
+  if (isBeforeOpen) {
     return toKSTDateStr(new Date(nowUTC.getTime() - 86400000))
   }
   return toKSTDateStr(nowUTC)
