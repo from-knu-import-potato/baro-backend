@@ -258,4 +258,50 @@ storesRouter.patch('/:storeId', authMiddleware, zValidator('json', updateStoreSc
   return c.json({ success: true, data: updated })
 })
 
+const updateOperatingHoursSchema = z.object({
+  operatingHours: z.array(z.object({
+    dayOfWeek: z.enum(['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']),
+    isOpen: z.boolean(),
+    openTime: z.string().nullable(),
+    closeTime: z.string().nullable(),
+  })).min(1),
+})
+
+storesRouter.patch('/:storeId/operating-hours', authMiddleware, zValidator('json', updateOperatingHoursSchema), async (c) => {
+  const storeId = c.req.param('storeId')
+  const { operatingHours: hoursData } = c.req.valid('json')
+
+  for (const oh of hoursData) {
+    await db
+      .update(operatingHours)
+      .set({
+        openTime: oh.isOpen ? oh.openTime : null,
+        closeTime: oh.isOpen ? oh.closeTime : null,
+        isClosed: !oh.isOpen,
+      })
+      .where(and(
+        eq(operatingHours.storeId, storeId),
+        eq(operatingHours.dayOfWeek, DAY_MAP[oh.dayOfWeek]),
+      ))
+  }
+
+  const updated = await db
+    .select()
+    .from(operatingHours)
+    .where(eq(operatingHours.storeId, storeId))
+    .orderBy(operatingHours.dayOfWeek)
+
+  return c.json({
+    success: true,
+    data: {
+      operatingHours: updated.map((h) => ({
+        dayOfWeek: DAY_OF_WEEK_LABELS[h.dayOfWeek],
+        isOpen: !h.isClosed,
+        openTime: h.openTime ?? null,
+        closeTime: h.closeTime ?? null,
+      })),
+    },
+  })
+})
+
 export default storesRouter
