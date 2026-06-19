@@ -133,6 +133,13 @@ export const inboundItems = pgTable('inbound_items', {
   memo: text('memo'),
 })
 
+export const storeOpens = pgTable('store_opens', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  storeId: uuid('store_id').references(() => stores.id, { onDelete: 'cascade' }).notNull(),
+  businessDate: date('business_date').notNull(),
+  openedAt: timestamp('opened_at').defaultNow().notNull(),
+})
+
 export const closings = pgTable('closings', {
   id: uuid('id').primaryKey().defaultRandom(),
   storeId: uuid('store_id').references(() => stores.id, { onDelete: 'cascade' }).notNull(),
