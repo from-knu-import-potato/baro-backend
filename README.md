@@ -12,7 +12,11 @@
     <img src="https://img.shields.io/badge/🌐 서비스 바로가기-Click-449CD4?style=flat-square" />
   </a>
   &nbsp;&nbsp;
-  <a href="https://github.com/from-knu-import-potato/baro-frontend">
+  <a href="https://qa-baro-web.vercel.app/">
+    <img src="https://img.shields.io/badge/🧪 테스트 서비스-Click-679436?style=flat-square" />
+  </a>
+    &nbsp;&nbsp;
+    <a href="https://github.com/from-knu-import-potato/baro-frontend">
     <img src="https://img.shields.io/badge/🖥️ 프론트엔드 레포-Click-E8A838?style=flat-square" />
   </a>
 </div>
@@ -61,22 +65,22 @@ pnpm install
 cp .env.example .env
 ```
 
-| 변수 | 설명 |
-|---|---|
-| `DATABASE_URL` | Supabase PostgreSQL 연결 문자열 |
-| `JWT_SECRET` | Access Token 서명 시크릿 |
-| `JWT_REFRESH_SECRET` | Refresh Token 서명 시크릿 |
-| `KAKAO_CLIENT_ID` | 카카오 앱 REST API 키 |
-| `KAKAO_CLIENT_SECRET` | 카카오 앱 시크릿 |
-| `KAKAO_REDIRECT_URI` | 카카오 OAuth 콜백 URI |
-| `GEMINI_API_KEY` | Gemini API 키 (발주 가이드 AI) |
-| `CLOVA_OCR_API_URL` | CLOVA OCR API URL |
-| `CLOVA_OCR_SECRET_KEY` | CLOVA OCR 시크릿 키 |
-| `SUPABASE_URL` | Supabase 프로젝트 URL |
-| `SUPABASE_SERVICE_KEY` | Supabase Service Role 키 |
-| `FRONTEND_URL` | 프론트엔드 URL (CORS 허용) |
-| `REGISTER_CODE` | 로컬 회원가입 초대 코드 (데모용) |
-| `PORT` | 서버 포트 (기본값: 3000) |
+| 변수                   | 설명                             |
+| ---------------------- | -------------------------------- |
+| `DATABASE_URL`         | Supabase PostgreSQL 연결 문자열  |
+| `JWT_SECRET`           | Access Token 서명 시크릿         |
+| `JWT_REFRESH_SECRET`   | Refresh Token 서명 시크릿        |
+| `KAKAO_CLIENT_ID`      | 카카오 앱 REST API 키            |
+| `KAKAO_CLIENT_SECRET`  | 카카오 앱 시크릿                 |
+| `KAKAO_REDIRECT_URI`   | 카카오 OAuth 콜백 URI            |
+| `GEMINI_API_KEY`       | Gemini API 키 (발주 가이드 AI)   |
+| `CLOVA_OCR_API_URL`    | CLOVA OCR API URL                |
+| `CLOVA_OCR_SECRET_KEY` | CLOVA OCR 시크릿 키              |
+| `SUPABASE_URL`         | Supabase 프로젝트 URL            |
+| `SUPABASE_SERVICE_KEY` | Supabase Service Role 키         |
+| `FRONTEND_URL`         | 프론트엔드 URL (CORS 허용)       |
+| `REGISTER_CODE`        | 로컬 회원가입 초대 코드 (데모용) |
+| `PORT`                 | 서버 포트 (기본값: 3000)         |
 
 <br/>
 
