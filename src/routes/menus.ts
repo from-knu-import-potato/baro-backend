@@ -1,15 +1,15 @@
 import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
+import { GoogleGenAI } from '@google/genai'
 import { db } from '../db/index.js'
 import { menus } from '../db/schema.js'
 import type { AppEnv } from '../types/index.js'
 import { authMiddleware } from '../middleware/auth.js'
 import { eq, and } from 'drizzle-orm'
 import { supabase } from '../lib/supabase.js'
-import Groq from 'groq-sdk'
 
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY! })
+const genai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! })
 
 type MenuOcrItem = {
   name: string
@@ -79,14 +79,11 @@ menusRouter.post('/:storeId/menus/ocr-scan', authMiddleware, async (c) => {
         images: [{ format: file.type.split('/')[1] ?? 'jpg', name: 'menu-ocr', data: base64 }],
       }),
     })
-  } catch (err) {
-    console.error('[menu-ocr] Clova fetch error:', err)
+  } catch {
     return c.json({ success: false, error: { code: 'OCR_FAILED', message: 'OCR 요청에 실패했습니다.' } }, 500)
   }
 
   if (!clovaRes.ok) {
-    const errBody = await clovaRes.text().catch(() => '')
-    console.error('[menu-ocr] Clova OCR non-ok:', clovaRes.status, errBody)
     return c.json({ success: false, error: { code: 'OCR_FAILED', message: 'OCR 처리에 실패했습니다.' } }, 500)
   }
 
@@ -97,48 +94,39 @@ menusRouter.post('/:storeId/menus/ocr-scan', authMiddleware, async (c) => {
     return c.json({ success: false, error: { code: 'OCR_EMPTY', message: '텍스트를 인식하지 못했습니다.' } }, 422)
   }
 
-  let completion: Awaited<ReturnType<typeof groq.chat.completions.create>>
-  try {
-    completion = await groq.chat.completions.create({
-      model: 'llama-3.3-70b-versatile',
-      messages: [
-        {
-          role: 'system',
-          content:
-            '당신은 한국 카페·식당 메뉴판 분석 전문가입니다. OCR로 추출한 텍스트에서 메뉴 항목만 정확히 식별하세요. 메뉴명이 아닌 가게 정보, 영업시간, 주소 등은 제외하세요.',
-        },
-        {
-          role: 'user',
-          content: `다음은 한국 카페·식당 메뉴판에서 OCR로 추출한 텍스트입니다. 메뉴 항목을 JSON 배열로 반환해주세요.
+  const prompt = `당신은 한국 카페·식당 메뉴판 분석 전문가입니다. 다음은 한국 메뉴판에서 OCR로 추출한 텍스트입니다.
+아래 JSON 배열 구조로 반환해주세요. JSON 외 설명은 금지입니다.
 
 [규칙]
-1. name: 메뉴명만. 괄호 안 부가 설명 제거. OCR 오인식은 가장 가까운 실제 메뉴명으로 교정.
-2. price: 숫자(원). 가격 표기가 없으면 0. 예) "4,500" → 4500, "4500원" → 4500.
-3. description: 메뉴 설명이 있으면 포함, 없으면 null.
-4. 카테고리 헤더(예: "커피", "음료", "디저트"), 가게 정보, 영업시간은 제외.
+1. name: 메뉴명만. 괄호 안 부가 설명·규격 정보 제거. OCR 오인식은 가장 가까운 실제 메뉴명으로 교정.
+2. price: 숫자(원 단위 정수). 가격 표기가 없으면 0. 예) "4,500" → 4500, "4500원" → 4500.
+3. description: 메뉴 설명 문구가 있으면 포함, 없으면 null.
+4. 카테고리 헤더(예: "커피", "음료", "디저트"), 가게 이름·주소·전화번호·영업시간·SNS 등 비메뉴 정보는 제외.
 5. JSON 배열만 반환. 설명 금지.
 
 텍스트:
-${rawText}`,
-        },
-      ],
-      temperature: 0,
+${rawText}`
+
+  let completion: Awaited<ReturnType<typeof genai.models.generateContent>>
+  try {
+    completion = await genai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: prompt,
+      config: { temperature: 0 },
     })
-  } catch (err) {
-    console.error('[menu-ocr] Groq error:', err)
-    return c.json({ success: false, error: { code: 'AI_FAILED', message: 'AI 분석에 실패했습니다.' } }, 500)
+  } catch {
+    return c.json({ success: false, error: { code: 'AI_UNAVAILABLE', message: 'AI 서비스가 일시적으로 사용 불가합니다. 잠시 후 다시 시도해주세요.' } }, 503)
   }
 
-  const groqText = (completion.choices[0]?.message?.content ?? '')
+  const geminiText = (completion.text ?? '')
     .trim()
     .replace(/```json|```/g, '')
     .trim()
 
   let items: MenuOcrItem[]
   try {
-    items = JSON.parse(groqText) as MenuOcrItem[]
+    items = JSON.parse(geminiText) as MenuOcrItem[]
   } catch {
-    console.error('[menu-ocr] JSON parse failed. groqText:', groqText)
     return c.json({ success: false, error: { code: 'PARSE_FAILED', message: 'AI 파싱에 실패했습니다.' } }, 500)
   }
 
