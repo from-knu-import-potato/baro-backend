@@ -3,6 +3,8 @@ import { db } from '../db/index.js'
 import { users } from '../db/schema.js'
 import { signAccessToken, signRefreshToken, verifyRefreshToken } from '../lib/jwt.js'
 import { eq } from 'drizzle-orm'
+import { z } from 'zod'
+import bcrypt from 'bcryptjs'
 
 const ALLOWED_ORIGINS = [
   'http://localhost:5173',
@@ -89,6 +91,70 @@ auth.get('/kakao/callback', async (c) => {
   redirectUrl.searchParams.set('refreshToken', refreshToken)
   redirectUrl.searchParams.set('registered', String(isNewUser))
   return c.redirect(redirectUrl.toString())
+})
+
+const registerSchema = z.object({
+  username: z.string().min(3).max(30).regex(/^[a-zA-Z0-9_]+$/, '아이디는 영문, 숫자, 언더스코어만 사용 가능합니다.'),
+  password: z.string().min(6),
+  name: z.string().min(1),
+  inviteCode: z.string(),
+})
+
+const loginSchema = z.object({
+  username: z.string(),
+  password: z.string(),
+})
+
+auth.post('/register', async (c) => {
+  const body = await c.req.json()
+  const parsed = registerSchema.safeParse(body)
+  if (!parsed.success) {
+    return c.json({ success: false, error: { code: 'BAD_REQUEST', message: parsed.error.issues[0].message } }, 400)
+  }
+
+  const { username, password, name, inviteCode } = parsed.data
+
+  if (inviteCode !== process.env.REGISTER_CODE) {
+    return c.json({ success: false, error: { code: 'FORBIDDEN', message: '유효하지 않은 초대 코드입니다.' } }, 403)
+  }
+
+  const existing = await db.query.users.findFirst({ where: eq(users.username, username) })
+  if (existing) {
+    return c.json({ success: false, error: { code: 'CONFLICT', message: '이미 사용 중인 아이디입니다.' } }, 409)
+  }
+
+  const passwordHash = await bcrypt.hash(password, 10)
+  const [user] = await db.insert(users).values({ username, passwordHash, name }).returning()
+
+  const accessToken = await signAccessToken(user.id)
+  const refreshToken = await signRefreshToken(user.id)
+
+  return c.json({ success: true, data: { accessToken, refreshToken, isNewUser: true } }, 201)
+})
+
+auth.post('/login', async (c) => {
+  const body = await c.req.json()
+  const parsed = loginSchema.safeParse(body)
+  if (!parsed.success) {
+    return c.json({ success: false, error: { code: 'BAD_REQUEST', message: '아이디와 비밀번호를 입력해주세요.' } }, 400)
+  }
+
+  const { username, password } = parsed.data
+
+  const user = await db.query.users.findFirst({ where: eq(users.username, username) })
+  if (!user || !user.passwordHash) {
+    return c.json({ success: false, error: { code: 'UNAUTHORIZED', message: '아이디 또는 비밀번호가 올바르지 않습니다.' } }, 401)
+  }
+
+  const isValid = await bcrypt.compare(password, user.passwordHash)
+  if (!isValid) {
+    return c.json({ success: false, error: { code: 'UNAUTHORIZED', message: '아이디 또는 비밀번호가 올바르지 않습니다.' } }, 401)
+  }
+
+  const accessToken = await signAccessToken(user.id)
+  const refreshToken = await signRefreshToken(user.id)
+
+  return c.json({ success: true, data: { accessToken, refreshToken, isNewUser: false } })
 })
 
 auth.post('/logout', (c) => {
