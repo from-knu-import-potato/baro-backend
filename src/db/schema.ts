@@ -7,7 +7,9 @@ export const memberRoleEnum = pgEnum('member_role', ['owner', 'staff'])
 
 export const users = pgTable('users', {
   id: uuid('id').primaryKey().defaultRandom(),
-  kakaoId: text('kakao_id').unique().notNull(),
+  kakaoId: text('kakao_id').unique(),
+  username: text('username').unique(),
+  passwordHash: text('password_hash'),
   name: text('name').notNull(),
   email: text('email'),
   profileImage: text('profile_image'),
