@@ -32,6 +32,23 @@ usersRouter.get('/me/store', async (c) => {
   return c.json({ success: true, data: { storeId: member.storeId, storeName: member.store.name } })
 })
 
+usersRouter.get('/me/stores', async (c) => {
+  const userId = c.get('userId')
+  const members = await db.query.storeMembers.findMany({
+    where: eq(storeMembers.userId, userId),
+    with: { store: true },
+  })
+  return c.json({
+    success: true,
+    data: members.map((m) => ({
+      storeId: m.storeId,
+      storeName: m.store.name,
+      role: m.role,
+      themeColor: m.store.themeColor,
+    })),
+  })
+})
+
 const updateUserSchema = z.object({
   name: z.string().min(1),
 })
