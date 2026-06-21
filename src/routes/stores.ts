@@ -3,7 +3,7 @@ import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import { randomBytes } from 'crypto'
 import { db } from '../db/index.js'
-import { stores, storeMembers, operatingHours, menus, ingredients, recipes, users } from '../db/schema.js'
+import { stores, storeMembers, operatingHours, menus, ingredients, recipes, users, storeOpens, inboundRecords, orderGuides, closings, orders, menuCategories } from '../db/schema.js'
 import type { AppEnv } from '../types/index.js'
 import { authMiddleware } from '../middleware/auth.js'
 import { verifyAccessToken } from '../lib/jwt.js'
@@ -407,6 +407,29 @@ storesRouter.post('/:storeId/invite-code', authMiddleware, async (c) => {
     .returning({ inviteCode: stores.inviteCode })
 
   return c.json({ success: true, data: { inviteCode: updated.inviteCode } })
+})
+
+storesRouter.post('/:storeId/reset', authMiddleware, async (c) => {
+  const storeId = c.req.param('storeId')
+  const userId = c.get('userId')
+
+  const member = await db.query.storeMembers.findFirst({
+    where: and(eq(storeMembers.storeId, storeId), eq(storeMembers.userId, userId)),
+  })
+  if (!member || member.role !== 'owner') {
+    return c.json({ success: false, error: { code: 'FORBIDDEN', message: '권한이 없습니다.' } }, 403)
+  }
+
+  await db.delete(storeOpens).where(eq(storeOpens.storeId, storeId))
+  await db.delete(inboundRecords).where(eq(inboundRecords.storeId, storeId))
+  await db.delete(orderGuides).where(eq(orderGuides.storeId, storeId))
+  await db.delete(closings).where(eq(closings.storeId, storeId))
+  await db.delete(orders).where(eq(orders.storeId, storeId))
+  await db.delete(menus).where(eq(menus.storeId, storeId))
+  await db.delete(menuCategories).where(eq(menuCategories.storeId, storeId))
+  await db.delete(ingredients).where(eq(ingredients.storeId, storeId))
+
+  return c.json({ success: true, data: null })
 })
 
 export default storesRouter
