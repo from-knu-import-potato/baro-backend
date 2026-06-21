@@ -266,6 +266,37 @@ PORT=3000
 
 ---
 
+## 배포 규칙
+
+### 버전 관리 (Semantic Versioning)
+
+`Major.Minor.Patch` 형식을 사용한다.
+
+| 구분 | 올리는 시점 | 예시 |
+|---|---|---|
+| **Major** | 하위 호환되지 않는 큰 변경 (API 전면 개편, 서비스 구조 변경) | `1.0.0` → `2.0.0` |
+| **Minor** | 하위 호환되는 기능 추가 (새 API 엔드포인트, 새 기능) | `0.1.0` → `0.2.0` |
+| **Patch** | 하위 호환되는 버그 수정, 소규모 개선 | `0.1.0` → `0.1.1` |
+
+### 배포 흐름
+
+```
+develop → release/vX.Y.Z → main
+```
+
+1. **배포 이슈 생성**: `.github/ISSUE_TEMPLATE/deploy.md` 템플릿 사용
+2. **릴리즈 브랜치 생성**: `develop`에서 `release/vX.Y.Z` 브랜치 생성
+3. **PR 생성**: `release/vX.Y.Z` → `main` PR 작성 (배포 이슈 연결)
+   - PR 제목 형식: `🚀 (#배포이슈번호) deploy: 배포 버전과 배포 제목` (예: `🚀 (#56) deploy: v0.1.1 백엔드 안정화 배포`)
+4. **태그·릴리즈**: main 머지 후 GitHub Release 및 태그(`vX.Y.Z`) 생성
+
+### 브랜치 네이밍
+
+- 릴리즈 브랜치: `release/vX.Y.Z` (예: `release/v0.2.0`)
+- 일반 작업 브랜치: `작업유형/이슈번호-작업이름` (예: `feature/15-menu-ocr-scan`)
+
+---
+
 ## Git 커밋 컨벤션
 
 형식: `[gitmoji] [태그]: [제목]`

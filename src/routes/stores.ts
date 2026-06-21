@@ -1,12 +1,15 @@
 import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
+import { randomBytes } from 'crypto'
 import { db } from '../db/index.js'
-import { stores, storeMembers, operatingHours, menus, ingredients, recipes, users } from '../db/schema.js'
+import { stores, storeMembers, operatingHours, menus, ingredients, recipes, users, storeOpens, inboundRecords, orderGuides, closings, orders, menuCategories } from '../db/schema.js'
 import type { AppEnv } from '../types/index.js'
 import { authMiddleware } from '../middleware/auth.js'
 import { verifyAccessToken } from '../lib/jwt.js'
 import { eq, sql, and } from 'drizzle-orm'
+
+const generateInviteCode = () => randomBytes(4).toString('hex').toUpperCase()
 
 const storesRouter = new Hono<AppEnv>()
 
@@ -63,6 +66,7 @@ storesRouter.post('/setup', authMiddleware, zValidator('json', setupSchema), asy
     ownerId: userId,
     businessType: data.basicInfo.businessType,
     category: data.basicInfo.category,
+    inviteCode: generateInviteCode(),
   }).returning()
 
   await db.insert(storeMembers).values({
@@ -130,6 +134,35 @@ storesRouter.post('/setup', authMiddleware, zValidator('json', setupSchema), asy
   return c.json({ success: true, data: { storeId: store.id } }, 201)
 })
 
+storesRouter.post('/join', authMiddleware, zValidator('json', z.object({ inviteCode: z.string().min(1) })), async (c) => {
+  const userId = c.get('userId')
+  const { inviteCode } = c.req.valid('json')
+
+  const store = await db.query.stores.findFirst({
+    where: eq(stores.inviteCode, inviteCode.toUpperCase()),
+  })
+  if (!store) {
+    return c.json({ success: false, error: { code: 'INVALID_INVITE_CODE', message: '유효하지 않은 초대코드입니다.' } }, 404)
+  }
+
+  const existing = await db.query.storeMembers.findFirst({
+    where: and(eq(storeMembers.storeId, store.id), eq(storeMembers.userId, userId)),
+  })
+  if (existing) {
+    return c.json({ success: false, error: { code: 'ALREADY_MEMBER', message: '이미 참여한 가게입니다.' } }, 409)
+  }
+
+  await db.insert(storeMembers).values({
+    storeId: store.id,
+    userId,
+    role: 'staff',
+  })
+
+  return c.json({ success: true, data: { storeId: store.id, storeName: store.name, role: 'staff' } }, 201)
+})
+
+const DAY_OF_WEEK_LABELS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'] as const
+
 storesRouter.get('/:storeId', async (c) => {
   const storeId = c.req.param('storeId')
 
@@ -179,6 +212,19 @@ storesRouter.get('/:storeId', async (c) => {
     myRole = member?.role ?? null
   }
 
+  const hours = await db
+    .select()
+    .from(operatingHours)
+    .where(eq(operatingHours.storeId, storeId))
+    .orderBy(operatingHours.dayOfWeek)
+
+  const operatingHoursList = hours.map((h) => ({
+    dayOfWeek: DAY_OF_WEEK_LABELS[h.dayOfWeek],
+    isOpen: !h.isClosed,
+    openTime: h.openTime ?? null,
+    closeTime: h.closeTime ?? null,
+  }))
+
   const { ownerName, ownerProfileImage, ...storeData } = result
   return c.json({
     success: true,
@@ -186,6 +232,7 @@ storesRouter.get('/:storeId', async (c) => {
       ...storeData,
       owner: { id: storeData.ownerId, name: ownerName, profileImage: ownerProfileImage },
       myRole,
+      operatingHours: operatingHoursList,
     },
   })
 })
@@ -240,6 +287,149 @@ storesRouter.patch('/:storeId', authMiddleware, zValidator('json', updateStoreSc
   }
 
   return c.json({ success: true, data: updated })
+})
+
+const updateOperatingHoursSchema = z.object({
+  operatingHours: z.array(z.object({
+    dayOfWeek: z.enum(['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']),
+    isOpen: z.boolean(),
+    openTime: z.string().nullable(),
+    closeTime: z.string().nullable(),
+  })).min(1),
+})
+
+storesRouter.patch('/:storeId/operating-hours', authMiddleware, zValidator('json', updateOperatingHoursSchema), async (c) => {
+  const storeId = c.req.param('storeId')
+  const { operatingHours: hoursData } = c.req.valid('json')
+
+  for (const oh of hoursData) {
+    await db
+      .update(operatingHours)
+      .set({
+        openTime: oh.isOpen ? oh.openTime : null,
+        closeTime: oh.isOpen ? oh.closeTime : null,
+        isClosed: !oh.isOpen,
+      })
+      .where(and(
+        eq(operatingHours.storeId, storeId),
+        eq(operatingHours.dayOfWeek, DAY_MAP[oh.dayOfWeek]),
+      ))
+  }
+
+  const updated = await db
+    .select()
+    .from(operatingHours)
+    .where(eq(operatingHours.storeId, storeId))
+    .orderBy(operatingHours.dayOfWeek)
+
+  return c.json({
+    success: true,
+    data: {
+      operatingHours: updated.map((h) => ({
+        dayOfWeek: DAY_OF_WEEK_LABELS[h.dayOfWeek],
+        isOpen: !h.isClosed,
+        openTime: h.openTime ?? null,
+        closeTime: h.closeTime ?? null,
+      })),
+    },
+  })
+})
+
+storesRouter.get('/:storeId/members', authMiddleware, async (c) => {
+  const storeId = c.req.param('storeId')
+  const userId = c.get('userId')
+
+  const requester = await db.query.storeMembers.findFirst({
+    where: and(eq(storeMembers.storeId, storeId), eq(storeMembers.userId, userId)),
+  })
+  if (!requester) {
+    return c.json({ success: false, error: { code: 'FORBIDDEN', message: '권한이 없습니다.' } }, 403)
+  }
+
+  const members = await db
+    .select({
+      userId: users.id,
+      name: users.name,
+      profileImage: users.profileImage,
+      role: storeMembers.role,
+      joinedAt: storeMembers.createdAt,
+    })
+    .from(storeMembers)
+    .innerJoin(users, eq(storeMembers.userId, users.id))
+    .where(eq(storeMembers.storeId, storeId))
+
+  return c.json({ success: true, data: members })
+})
+
+storesRouter.delete('/:storeId/members/:targetUserId', authMiddleware, async (c) => {
+  const storeId = c.req.param('storeId')
+  const targetUserId = c.req.param('targetUserId')
+  const userId = c.get('userId')
+
+  const requester = await db.query.storeMembers.findFirst({
+    where: and(eq(storeMembers.storeId, storeId), eq(storeMembers.userId, userId)),
+  })
+  if (!requester || requester.role !== 'owner') {
+    return c.json({ success: false, error: { code: 'FORBIDDEN', message: '권한이 없습니다.' } }, 403)
+  }
+
+  if (targetUserId === userId) {
+    return c.json({ success: false, error: { code: 'CANNOT_REMOVE_SELF', message: '자기 자신을 내보낼 수 없습니다.' } }, 400)
+  }
+
+  const target = await db.query.storeMembers.findFirst({
+    where: and(eq(storeMembers.storeId, storeId), eq(storeMembers.userId, targetUserId)),
+  })
+  if (!target) {
+    return c.json({ success: false, error: { code: 'NOT_FOUND', message: '해당 멤버를 찾을 수 없습니다.' } }, 404)
+  }
+
+  await db.delete(storeMembers)
+    .where(and(eq(storeMembers.storeId, storeId), eq(storeMembers.userId, targetUserId)))
+
+  return c.json({ success: true, data: null })
+})
+
+storesRouter.post('/:storeId/invite-code', authMiddleware, async (c) => {
+  const storeId = c.req.param('storeId')
+  const userId = c.get('userId')
+
+  const member = await db.query.storeMembers.findFirst({
+    where: and(eq(storeMembers.storeId, storeId), eq(storeMembers.userId, userId)),
+  })
+  if (!member || member.role !== 'owner') {
+    return c.json({ success: false, error: { code: 'FORBIDDEN', message: '권한이 없습니다.' } }, 403)
+  }
+
+  const [updated] = await db.update(stores)
+    .set({ inviteCode: generateInviteCode(), updatedAt: new Date() })
+    .where(eq(stores.id, storeId))
+    .returning({ inviteCode: stores.inviteCode })
+
+  return c.json({ success: true, data: { inviteCode: updated.inviteCode } })
+})
+
+storesRouter.post('/:storeId/reset', authMiddleware, async (c) => {
+  const storeId = c.req.param('storeId')
+  const userId = c.get('userId')
+
+  const member = await db.query.storeMembers.findFirst({
+    where: and(eq(storeMembers.storeId, storeId), eq(storeMembers.userId, userId)),
+  })
+  if (!member || member.role !== 'owner') {
+    return c.json({ success: false, error: { code: 'FORBIDDEN', message: '권한이 없습니다.' } }, 403)
+  }
+
+  await db.delete(storeOpens).where(eq(storeOpens.storeId, storeId))
+  await db.delete(inboundRecords).where(eq(inboundRecords.storeId, storeId))
+  await db.delete(orderGuides).where(eq(orderGuides.storeId, storeId))
+  await db.delete(closings).where(eq(closings.storeId, storeId))
+  await db.delete(orders).where(eq(orders.storeId, storeId))
+  await db.delete(menus).where(eq(menus.storeId, storeId))
+  await db.delete(menuCategories).where(eq(menuCategories.storeId, storeId))
+  await db.delete(ingredients).where(eq(ingredients.storeId, storeId))
+
+  return c.json({ success: true, data: null })
 })
 
 export default storesRouter

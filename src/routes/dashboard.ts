@@ -1,9 +1,9 @@
 import { Hono } from 'hono'
 import { db } from '../db/index.js'
-import { orders, ingredients, inboundItems, inboundRecords, closings } from '../db/schema.js'
+import { orders, ingredients, inboundItems, inboundRecords, closings, orderGuides, orderGuideItems } from '../db/schema.js'
 import type { AppEnv } from '../types/index.js'
 import { authMiddleware } from '../middleware/auth.js'
-import { eq, and, gte, lt, ne, count, sql } from 'drizzle-orm'
+import { eq, and, gte, lt, ne, count, sql, desc } from 'drizzle-orm'
 import { toKSTDateStr } from '../lib/kst.js'
 
 const dashboardRouter = new Hono<AppEnv>()
@@ -21,14 +21,20 @@ dashboardRouter.get('/:storeId/dashboard/stats', authMiddleware, async (c) => {
     .from(ingredients)
     .where(eq(ingredients.storeId, storeId))
 
-  // 안전재고 미달 수 (발주 가이드 API 구현 전 임시)
-  const [{ total: lowStockCount }] = await db
-    .select({ total: count() })
-    .from(ingredients)
-    .where(and(
-      eq(ingredients.storeId, storeId),
-      sql`${ingredients.currentStock} < ${ingredients.safetyStock}`,
-    ))
+  const [latestGuide] = await db
+    .select({ id: orderGuides.id })
+    .from(orderGuides)
+    .where(eq(orderGuides.storeId, storeId))
+    .orderBy(desc(orderGuides.generatedAt))
+    .limit(1)
+
+  const orderGuideCount = latestGuide
+    ? (await db
+        .select({ total: count() })
+        .from(orderGuideItems)
+        .where(eq(orderGuideItems.orderGuideId, latestGuide.id))
+      )[0].total
+    : 0
 
   // 유통기한 7일 이내 식자재 수 (중복 제거)
   const [{ total: expiringCount }] = await db
@@ -84,7 +90,7 @@ dashboardRouter.get('/:storeId/dashboard/stats', authMiddleware, async (c) => {
     data: {
       totalInventory,
       expiringItems: expiringCount,
-      aiOrderRecommendations: lowStockCount,
+      aiOrderRecommendations: orderGuideCount,
       monthlyConsumption: thisMonth,
       monthlyConsumptionChange,
       missedClosing,

@@ -2,7 +2,7 @@ import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import { db } from '../db/index.js'
-import { ingredients, inboundRecords, inboundItems, closingDeductions, recipes, menus, stores } from '../db/schema.js'
+import { ingredients, inboundRecords, inboundItems, closingDeductions, recipes, menus, stores, ingredientUnitConversions } from '../db/schema.js'
 import type { AppEnv } from '../types/index.js'
 import { authMiddleware } from '../middleware/auth.js'
 import { eq, and, sql, inArray, desc } from 'drizzle-orm'
@@ -21,11 +21,21 @@ const ingredientSchema = z.object({
 })
 
 const inboundSchema = z.object({
+  metadata: z.object({
+    transactionDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+    supplierName: z.string().nullable().optional(),
+    invoiceNumber: z.string().nullable().optional(),
+    totalSupplyAmount: z.number().nullable().optional(),
+    totalTax: z.number().nullable().optional(),
+    totalAmount: z.number().nullable().optional(),
+  }).optional(),
   items: z.array(z.object({
     ingredientId: z.string().uuid(),
     amount: z.number().positive(),
     unitPrice: z.number().positive().nullable().optional(),
+    supplyPrice: z.number().positive().nullable().optional(),
     expiryDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+    memo: z.string().nullable().optional(),
   })).min(1),
 })
 
@@ -200,7 +210,7 @@ ingredientsRouter.delete('/:storeId/ingredients/:id', authMiddleware, async (c) 
 // 입고 처리 (OCR 확정 후 호출)
 ingredientsRouter.post('/:storeId/ingredients/inbound', authMiddleware, zValidator('json', inboundSchema), async (c) => {
   const storeId = c.req.param('storeId')
-  const { items } = c.req.valid('json')
+  const { metadata, items } = c.req.valid('json')
 
   // 해당 가게 식자재인지 검증
   const ingredientIds = items.map((i) => i.ingredientId)
@@ -216,7 +226,15 @@ ingredientsRouter.post('/:storeId/ingredients/inbound', authMiddleware, zValidat
     return c.json({ success: false, error: { code: 'BAD_REQUEST', message: '유효하지 않은 식자재가 포함되어 있습니다.' } }, 400)
   }
 
-  const [record] = await db.insert(inboundRecords).values({ storeId }).returning()
+  const [record] = await db.insert(inboundRecords).values({
+    storeId,
+    transactionDate: metadata?.transactionDate ?? null,
+    supplierName: metadata?.supplierName ?? null,
+    invoiceNumber: metadata?.invoiceNumber ?? null,
+    totalSupplyAmount: metadata?.totalSupplyAmount != null ? String(metadata.totalSupplyAmount) : null,
+    totalTax: metadata?.totalTax != null ? String(metadata.totalTax) : null,
+    totalAmount: metadata?.totalAmount != null ? String(metadata.totalAmount) : null,
+  }).returning()
 
   await db.insert(inboundItems).values(
     items.map((item) => ({
@@ -224,7 +242,9 @@ ingredientsRouter.post('/:storeId/ingredients/inbound', authMiddleware, zValidat
       ingredientId: item.ingredientId,
       amount: String(item.amount),
       unitPrice: item.unitPrice != null ? String(item.unitPrice) : null,
+      supplyPrice: item.supplyPrice != null ? String(item.supplyPrice) : null,
       expiryDate: item.expiryDate ?? null,
+      memo: item.memo ?? null,
     }))
   )
 
@@ -255,6 +275,68 @@ ingredientsRouter.post('/:storeId/ingredients/inbound', authMiddleware, zValidat
   }
 
   return c.json({ success: true, data: { inboundRecordId: record.id } }, 201)
+})
+
+const unitConversionUpsertSchema = z.array(z.object({
+  ingredientId: z.string().uuid(),
+  purchaseUnit: z.string().min(1),
+  baseUnit: z.enum(['g', 'ml', '개']),
+  factor: z.number().positive(),
+})).min(1)
+
+// 가게의 구매 단위 변환 factor 전체 조회
+ingredientsRouter.get('/:storeId/unit-conversions', authMiddleware, async (c) => {
+  const storeId = c.req.param('storeId')
+
+  const list = await db
+    .select({
+      id: ingredientUnitConversions.id,
+      ingredientId: ingredientUnitConversions.ingredientId,
+      purchaseUnit: ingredientUnitConversions.purchaseUnit,
+      baseUnit: ingredientUnitConversions.baseUnit,
+      factor: ingredientUnitConversions.factor,
+    })
+    .from(ingredientUnitConversions)
+    .where(eq(ingredientUnitConversions.storeId, storeId))
+
+  return c.json({ success: true, data: list })
+})
+
+// 구매 단위 변환 factor 저장/갱신 (bulk upsert)
+ingredientsRouter.put('/:storeId/unit-conversions', authMiddleware, zValidator('json', unitConversionUpsertSchema), async (c) => {
+  const storeId = c.req.param('storeId')
+  const items = c.req.valid('json')
+
+  const ingredientIds = items.map((i) => i.ingredientId)
+  const owned = await db
+    .select({ id: ingredients.id })
+    .from(ingredients)
+    .where(and(eq(ingredients.storeId, storeId), inArray(ingredients.id, ingredientIds)))
+
+  if (owned.length !== ingredientIds.length) {
+    return c.json({ success: false, error: { code: 'BAD_REQUEST', message: '유효하지 않은 식자재가 포함되어 있습니다.' } }, 400)
+  }
+
+  const now = new Date()
+  await db
+    .insert(ingredientUnitConversions)
+    .values(items.map((item) => ({
+      storeId,
+      ingredientId: item.ingredientId,
+      purchaseUnit: item.purchaseUnit.toUpperCase(),
+      baseUnit: item.baseUnit,
+      factor: String(item.factor),
+    })))
+    .onConflictDoUpdate({
+      target: [ingredientUnitConversions.ingredientId, ingredientUnitConversions.purchaseUnit],
+      set: {
+        baseUnit: sql`excluded.base_unit`,
+        factor: sql`excluded.factor`,
+        updatedAt: now,
+      },
+    })
+
+  return c.json({ success: true, data: null })
 })
 
 export default ingredientsRouter

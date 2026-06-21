@@ -2,13 +2,23 @@ import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import { db } from '../db/index.js'
-import { orders, orderItems, menus, recipes, ingredients, closings, closingDeductions } from '../db/schema.js'
+import { orders, orderItems, menus, recipes, ingredients, closings, closingDeductions, operatingHours } from '../db/schema.js'
 import type { AppEnv } from '../types/index.js'
 import { authMiddleware } from '../middleware/auth.js'
 import { eq, and, inArray, gte, lt, sql, desc } from 'drizzle-orm'
-import { toKSTDateStr, getKSTDateRange, getAutoClosingDateStr, isValidClosingDate } from '../lib/kst.js'
+import { toKSTDateStr, getKSTDateRange, getBusinessDateStr, isValidClosingDate } from '../lib/kst.js'
 
 const closingRouter = new Hono<AppEnv>()
+
+async function getTodayOpenTime(storeId: string): Promise<string | null> {
+  const kstDayOfWeek = new Date(Date.now() + 9 * 60 * 60 * 1000).getUTCDay()
+  const [row] = await db
+    .select({ openTime: operatingHours.openTime, isClosed: operatingHours.isClosed })
+    .from(operatingHours)
+    .where(and(eq(operatingHours.storeId, storeId), eq(operatingHours.dayOfWeek, kstDayOfWeek)))
+    .limit(1)
+  return row?.isClosed ? null : (row?.openTime ?? null)
+}
 
 // 마감 미리보기 조회
 closingRouter.get('/:storeId/closing/preview', authMiddleware, async (c) => {
@@ -25,7 +35,8 @@ closingRouter.get('/:storeId/closing/preview', authMiddleware, async (c) => {
     }
     dateStr = dateParam
   } else {
-    dateStr = getAutoClosingDateStr()
+    const openTime = await getTodayOpenTime(storeId)
+    dateStr = getBusinessDateStr(openTime)
   }
 
   const { start, end } = getKSTDateRange(dateStr)
@@ -170,7 +181,8 @@ closingRouter.post('/:storeId/closing', authMiddleware, zValidator('json', closi
   const storeId = c.req.param('storeId')
   const { date: dateParam, inventoryDeductions } = c.req.valid('json')
 
-  const date = dateParam ?? getAutoClosingDateStr()
+  const openTime = await getTodayOpenTime(storeId)
+  const date = dateParam ?? getBusinessDateStr(openTime)
 
   if (!isValidClosingDate(date)) {
     return c.json({

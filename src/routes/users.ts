@@ -1,4 +1,6 @@
 import { Hono } from 'hono'
+import { zValidator } from '@hono/zod-validator'
+import { z } from 'zod'
 import { db } from '../db/index.js'
 import { users, stores, storeMembers } from '../db/schema.js'
 import type { AppEnv } from '../types/index.js'
@@ -28,6 +30,40 @@ usersRouter.get('/me/store', async (c) => {
     return c.json({ success: true, data: null })
   }
   return c.json({ success: true, data: { storeId: member.storeId, storeName: member.store.name } })
+})
+
+usersRouter.get('/me/stores', async (c) => {
+  const userId = c.get('userId')
+  const members = await db.query.storeMembers.findMany({
+    where: eq(storeMembers.userId, userId),
+    with: { store: true },
+  })
+  return c.json({
+    success: true,
+    data: members.map((m) => ({
+      storeId: m.storeId,
+      storeName: m.store.name,
+      role: m.role,
+      themeColor: m.store.themeColor,
+    })),
+  })
+})
+
+const updateUserSchema = z.object({
+  name: z.string().min(1),
+})
+
+usersRouter.patch('/me', zValidator('json', updateUserSchema), async (c) => {
+  const userId = c.get('userId')
+  const { name } = c.req.valid('json')
+
+  const [updated] = await db
+    .update(users)
+    .set({ name, updatedAt: new Date() })
+    .where(eq(users.id, userId))
+    .returning()
+
+  return c.json({ success: true, data: { id: updated.id, name: updated.name, email: updated.email, profileImage: updated.profileImage } })
 })
 
 usersRouter.delete('/me', async (c) => {

@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, integer, numeric, boolean, timestamp, pgEnum, date } from 'drizzle-orm/pg-core'
+import { pgTable, uuid, text, integer, numeric, boolean, timestamp, pgEnum, date, unique } from 'drizzle-orm/pg-core'
 import { relations } from 'drizzle-orm'
 
 export const orderStatusEnum = pgEnum('order_status', ['pending', 'preparing', 'completed', 'cancelled'])
@@ -7,7 +7,9 @@ export const memberRoleEnum = pgEnum('member_role', ['owner', 'staff'])
 
 export const users = pgTable('users', {
   id: uuid('id').primaryKey().defaultRandom(),
-  kakaoId: text('kakao_id').unique().notNull(),
+  kakaoId: text('kakao_id').unique(),
+  username: text('username').unique(),
+  passwordHash: text('password_hash'),
   name: text('name').notNull(),
   email: text('email'),
   profileImage: text('profile_image'),
@@ -113,6 +115,12 @@ export const orderItems = pgTable('order_items', {
 export const inboundRecords = pgTable('inbound_records', {
   id: uuid('id').primaryKey().defaultRandom(),
   storeId: uuid('store_id').references(() => stores.id, { onDelete: 'cascade' }).notNull(),
+  transactionDate: date('transaction_date'),
+  supplierName: text('supplier_name'),
+  invoiceNumber: text('invoice_number'),
+  totalSupplyAmount: numeric('total_supply_amount'),
+  totalTax: numeric('total_tax'),
+  totalAmount: numeric('total_amount'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 })
 
@@ -122,7 +130,16 @@ export const inboundItems = pgTable('inbound_items', {
   ingredientId: uuid('ingredient_id').references(() => ingredients.id).notNull(),
   amount: numeric('amount').notNull(),
   unitPrice: numeric('unit_price'),
+  supplyPrice: numeric('supply_price'),
   expiryDate: date('expiry_date'),
+  memo: text('memo'),
+})
+
+export const storeOpens = pgTable('store_opens', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  storeId: uuid('store_id').references(() => stores.id, { onDelete: 'cascade' }).notNull(),
+  businessDate: date('business_date').notNull(),
+  openedAt: timestamp('opened_at').defaultNow().notNull(),
 })
 
 export const closings = pgTable('closings', {
@@ -161,6 +178,19 @@ export const orderGuideItems = pgTable('order_guide_items', {
   recommendedOrderAmount: numeric('recommended_order_amount').notNull(),
   reason: text('reason').notNull(),
 })
+
+export const ingredientUnitConversions = pgTable('ingredient_unit_conversions', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  storeId: uuid('store_id').references(() => stores.id, { onDelete: 'cascade' }).notNull(),
+  ingredientId: uuid('ingredient_id').references(() => ingredients.id, { onDelete: 'cascade' }).notNull(),
+  purchaseUnit: text('purchase_unit').notNull(),
+  baseUnit: unitEnum('base_unit').notNull(),
+  factor: numeric('factor').notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+}, (t) => [
+  unique().on(t.ingredientId, t.purchaseUnit),
+])
 
 export const storesRelations = relations(stores, ({ one }) => ({
   owner: one(users, { fields: [stores.ownerId], references: [users.id] }),
