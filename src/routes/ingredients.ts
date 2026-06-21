@@ -2,7 +2,7 @@ import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import { db } from '../db/index.js'
-import { ingredients, inboundRecords, inboundItems, closingDeductions, recipes, menus, stores } from '../db/schema.js'
+import { ingredients, inboundRecords, inboundItems, closingDeductions, recipes, menus, stores, ingredientUnitConversions } from '../db/schema.js'
 import type { AppEnv } from '../types/index.js'
 import { authMiddleware } from '../middleware/auth.js'
 import { eq, and, sql, inArray, desc } from 'drizzle-orm'
@@ -275,6 +275,68 @@ ingredientsRouter.post('/:storeId/ingredients/inbound', authMiddleware, zValidat
   }
 
   return c.json({ success: true, data: { inboundRecordId: record.id } }, 201)
+})
+
+const unitConversionUpsertSchema = z.array(z.object({
+  ingredientId: z.string().uuid(),
+  purchaseUnit: z.string().min(1),
+  baseUnit: z.enum(['g', 'ml', '개']),
+  factor: z.number().positive(),
+})).min(1)
+
+// 가게의 구매 단위 변환 factor 전체 조회
+ingredientsRouter.get('/:storeId/unit-conversions', authMiddleware, async (c) => {
+  const storeId = c.req.param('storeId')
+
+  const list = await db
+    .select({
+      id: ingredientUnitConversions.id,
+      ingredientId: ingredientUnitConversions.ingredientId,
+      purchaseUnit: ingredientUnitConversions.purchaseUnit,
+      baseUnit: ingredientUnitConversions.baseUnit,
+      factor: ingredientUnitConversions.factor,
+    })
+    .from(ingredientUnitConversions)
+    .where(eq(ingredientUnitConversions.storeId, storeId))
+
+  return c.json({ success: true, data: list })
+})
+
+// 구매 단위 변환 factor 저장/갱신 (bulk upsert)
+ingredientsRouter.put('/:storeId/unit-conversions', authMiddleware, zValidator('json', unitConversionUpsertSchema), async (c) => {
+  const storeId = c.req.param('storeId')
+  const items = c.req.valid('json')
+
+  const ingredientIds = items.map((i) => i.ingredientId)
+  const owned = await db
+    .select({ id: ingredients.id })
+    .from(ingredients)
+    .where(and(eq(ingredients.storeId, storeId), inArray(ingredients.id, ingredientIds)))
+
+  if (owned.length !== ingredientIds.length) {
+    return c.json({ success: false, error: { code: 'BAD_REQUEST', message: '유효하지 않은 식자재가 포함되어 있습니다.' } }, 400)
+  }
+
+  const now = new Date()
+  await db
+    .insert(ingredientUnitConversions)
+    .values(items.map((item) => ({
+      storeId,
+      ingredientId: item.ingredientId,
+      purchaseUnit: item.purchaseUnit.toUpperCase(),
+      baseUnit: item.baseUnit,
+      factor: String(item.factor),
+    })))
+    .onConflictDoUpdate({
+      target: [ingredientUnitConversions.ingredientId, ingredientUnitConversions.purchaseUnit],
+      set: {
+        baseUnit: sql`excluded.base_unit`,
+        factor: sql`excluded.factor`,
+        updatedAt: now,
+      },
+    })
+
+  return c.json({ success: true, data: null })
 })
 
 export default ingredientsRouter

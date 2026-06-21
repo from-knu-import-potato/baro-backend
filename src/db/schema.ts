@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, integer, numeric, boolean, timestamp, pgEnum, date } from 'drizzle-orm/pg-core'
+import { pgTable, uuid, text, integer, numeric, boolean, timestamp, pgEnum, date, unique } from 'drizzle-orm/pg-core'
 import { relations } from 'drizzle-orm'
 
 export const orderStatusEnum = pgEnum('order_status', ['pending', 'preparing', 'completed', 'cancelled'])
@@ -178,6 +178,19 @@ export const orderGuideItems = pgTable('order_guide_items', {
   recommendedOrderAmount: numeric('recommended_order_amount').notNull(),
   reason: text('reason').notNull(),
 })
+
+export const ingredientUnitConversions = pgTable('ingredient_unit_conversions', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  storeId: uuid('store_id').references(() => stores.id, { onDelete: 'cascade' }).notNull(),
+  ingredientId: uuid('ingredient_id').references(() => ingredients.id, { onDelete: 'cascade' }).notNull(),
+  purchaseUnit: text('purchase_unit').notNull(),
+  baseUnit: unitEnum('base_unit').notNull(),
+  factor: numeric('factor').notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+}, (t) => [
+  unique().on(t.ingredientId, t.purchaseUnit),
+])
 
 export const storesRelations = relations(stores, ({ one }) => ({
   owner: one(users, { fields: [stores.ownerId], references: [users.id] }),
