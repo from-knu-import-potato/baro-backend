@@ -189,6 +189,7 @@ storesRouter.get('/:storeId', async (c) => {
       inviteCode: stores.inviteCode,
       memo: stores.memo,
       safetyStockPct: stores.safetyStockPct,
+      tableCount: stores.tableCount,
       themeColor: stores.themeColor,
       layout: stores.layout,
       bannerImageUrl: stores.bannerImageUrl,
@@ -244,6 +245,7 @@ const updateStoreSchema = z.object({
   category: z.enum(['korean', 'western', 'cafe', 'bunsik', 'japanese', 'chinese', 'fastfood', 'other']).optional(),
   memo: z.string().nullable().optional(),
   safetyStockPct: z.number().int().min(0).max(100).nullable().optional(),
+  tableCount: z.number().int().min(1).max(100).optional(),
 })
 
 storesRouter.patch('/:storeId', authMiddleware, zValidator('json', updateStoreSchema), async (c) => {
@@ -267,6 +269,7 @@ storesRouter.patch('/:storeId', authMiddleware, zValidator('json', updateStoreSc
       ...(data.category && { category: data.category }),
       ...('memo' in data && { memo: data.memo ?? null }),
       ...('safetyStockPct' in data && { safetyStockPct: data.safetyStockPct ?? null }),
+      ...(data.tableCount != null && { tableCount: data.tableCount }),
       updatedAt: new Date(),
     })
     .where(eq(stores.id, storeId))

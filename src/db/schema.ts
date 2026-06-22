@@ -26,6 +26,7 @@ export const stores = pgTable('stores', {
   inviteCode: text('invite_code').unique(),
   memo: text('memo'),
   safetyStockPct: integer('safety_stock_pct'),
+  tableCount: integer('table_count').default(1).notNull(),
   themeColor: text('theme_color').default('blue').notNull(),
   layout: text('layout').default('list').notNull(),
   bannerImageUrl: text('banner_image_url'),
