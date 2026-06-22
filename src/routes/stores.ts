@@ -364,6 +364,25 @@ storesRouter.get('/:storeId/members', authMiddleware, async (c) => {
   return c.json({ success: true, data: members })
 })
 
+storesRouter.delete('/:storeId/members/me', authMiddleware, async (c) => {
+  const storeId = c.req.param('storeId')
+  const userId = c.get('userId')
+
+  const member = await db.query.storeMembers.findFirst({
+    where: and(eq(storeMembers.storeId, storeId), eq(storeMembers.userId, userId)),
+  })
+  if (!member) {
+    return c.json({ success: false, error: { code: 'NOT_FOUND', message: '해당 가게의 멤버가 아닙니다.' } }, 404)
+  }
+  if (member.role === 'owner') {
+    return c.json({ success: false, error: { code: 'OWNER_CANNOT_LEAVE', message: '가게 owner는 나갈 수 없습니다. 가게를 삭제해주세요.' } }, 400)
+  }
+
+  await db.delete(storeMembers).where(and(eq(storeMembers.storeId, storeId), eq(storeMembers.userId, userId)))
+
+  return c.json({ success: true, data: null })
+})
+
 storesRouter.delete('/:storeId/members/:targetUserId', authMiddleware, async (c) => {
   const storeId = c.req.param('storeId')
   const targetUserId = c.req.param('targetUserId')
