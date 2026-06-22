@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import Groq from 'groq-sdk'
 import { db } from '../db/index.js'
-import { ingredients, recipes, menus, orders, closings, closingDeductions, orderGuides, orderGuideItems } from '../db/schema.js'
+import { ingredients, recipes, menus, orders, closings, closingDeductions, orderGuides, orderGuideItems, ingredientUnitConversions } from '../db/schema.js'
 import type { AppEnv } from '../types/index.js'
 import { authMiddleware } from '../middleware/auth.js'
 import { eq, and, sql, inArray, gte, desc } from 'drizzle-orm'
@@ -21,6 +21,36 @@ type OrderGuideItem = {
   status: OrderGuideStatus
   recommendedOrderAmount: number
   reason: string
+}
+
+async function fetchConversionsMap(ingredientIds: string[]): Promise<Map<string, { purchaseUnit: string; factor: number }[]>> {
+  if (ingredientIds.length === 0) return new Map()
+  const rows = await db
+    .select({
+      ingredientId: ingredientUnitConversions.ingredientId,
+      purchaseUnit: ingredientUnitConversions.purchaseUnit,
+      factor: ingredientUnitConversions.factor,
+    })
+    .from(ingredientUnitConversions)
+    .where(inArray(ingredientUnitConversions.ingredientId, ingredientIds))
+  const map = new Map<string, { purchaseUnit: string; factor: number }[]>()
+  for (const row of rows) {
+    const list = map.get(row.ingredientId) ?? []
+    list.push({ purchaseUnit: row.purchaseUnit, factor: Number(row.factor) })
+    map.set(row.ingredientId, list)
+  }
+  return map
+}
+
+function resolvePurchaseConversions(
+  map: Map<string, { purchaseUnit: string; factor: number }[]>,
+  ingredientId: string,
+  recommendedOrderAmount: number,
+): { purchaseUnit: string; purchaseAmount: number }[] {
+  return (map.get(ingredientId) ?? []).map(({ purchaseUnit, factor }) => ({
+    purchaseUnit,
+    purchaseAmount: Math.ceil(recommendedOrderAmount / factor),
+  }))
 }
 
 function calcStatus(current: number, safety: number): 'critical' | 'warning' {
@@ -55,21 +85,27 @@ orderGuideRouter.get('/:storeId/order-guide', authMiddleware, async (c) => {
     .from(orderGuideItems)
     .where(eq(orderGuideItems.orderGuideId, latestGuide.id))
 
+  const conversionsMap = await fetchConversionsMap(items.map((i) => i.ingredientId))
+
   return c.json({
     success: true,
     data: {
       generatedAt: latestGuide.generatedAt.toISOString(),
       summary: latestGuide.summary,
-      items: items.map((item) => ({
-        ingredientId: item.ingredientId,
-        ingredientName: item.ingredientName,
-        unit: item.unit,
-        currentStock: Number(item.currentStock),
-        safetyStock: Number(item.safetyStock),
-        status: item.status as OrderGuideStatus,
-        recommendedOrderAmount: Number(item.recommendedOrderAmount),
-        reason: item.reason,
-      })),
+      items: items.map((item) => {
+        const recommendedOrderAmount = Number(item.recommendedOrderAmount)
+        return {
+          ingredientId: item.ingredientId,
+          ingredientName: item.ingredientName,
+          unit: item.unit,
+          currentStock: Number(item.currentStock),
+          safetyStock: Number(item.safetyStock),
+          status: item.status as OrderGuideStatus,
+          recommendedOrderAmount,
+          reason: item.reason,
+          purchaseConversions: resolvePurchaseConversions(conversionsMap, item.ingredientId, recommendedOrderAmount),
+        }
+      }),
     },
   })
 })
@@ -311,6 +347,7 @@ ${contextBlocks}
 
   // AI 결과와 DB 데이터 병합
   const aiMap = new Map(aiItems.map((item) => [item.ingredientId, item]))
+  const conversionsMap = await fetchConversionsMap(targetIngredients.map((i) => i.id))
 
   const items: OrderGuideItem[] = targetIngredients.map((ing) => {
     const current = Number(ing.currentStock)
@@ -328,6 +365,7 @@ ${contextBlocks}
       status = calcStatus(current, safety)
     }
 
+    const recommendedOrderAmount = ai?.recommendedOrderAmount ?? calcRecommendedAmount(current, safety)
     return {
       ingredientId: ing.id,
       ingredientName: ing.name,
@@ -335,8 +373,9 @@ ${contextBlocks}
       currentStock: current,
       safetyStock: safety,
       status,
-      recommendedOrderAmount: ai?.recommendedOrderAmount ?? calcRecommendedAmount(current, safety),
+      recommendedOrderAmount,
       reason: ai?.reason ?? '발주가 필요합니다.',
+      purchaseConversions: resolvePurchaseConversions(conversionsMap, ing.id, recommendedOrderAmount),
     }
   })
 
