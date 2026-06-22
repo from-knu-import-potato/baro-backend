@@ -189,6 +189,7 @@ storesRouter.get('/:storeId', async (c) => {
       inviteCode: stores.inviteCode,
       memo: stores.memo,
       safetyStockPct: stores.safetyStockPct,
+      tableCount: stores.tableCount,
       themeColor: stores.themeColor,
       layout: stores.layout,
       bannerImageUrl: stores.bannerImageUrl,
@@ -244,6 +245,7 @@ const updateStoreSchema = z.object({
   category: z.enum(['korean', 'western', 'cafe', 'bunsik', 'japanese', 'chinese', 'fastfood', 'other']).optional(),
   memo: z.string().nullable().optional(),
   safetyStockPct: z.number().int().min(0).max(100).nullable().optional(),
+  tableCount: z.number().int().min(1).max(100).optional(),
 })
 
 storesRouter.patch('/:storeId', authMiddleware, zValidator('json', updateStoreSchema), async (c) => {
@@ -267,6 +269,7 @@ storesRouter.patch('/:storeId', authMiddleware, zValidator('json', updateStoreSc
       ...(data.category && { category: data.category }),
       ...('memo' in data && { memo: data.memo ?? null }),
       ...('safetyStockPct' in data && { safetyStockPct: data.safetyStockPct ?? null }),
+      ...(data.tableCount != null && { tableCount: data.tableCount }),
       updatedAt: new Date(),
     })
     .where(eq(stores.id, storeId))
@@ -361,6 +364,25 @@ storesRouter.get('/:storeId/members', authMiddleware, async (c) => {
   return c.json({ success: true, data: members })
 })
 
+storesRouter.delete('/:storeId/members/me', authMiddleware, async (c) => {
+  const storeId = c.req.param('storeId')
+  const userId = c.get('userId')
+
+  const member = await db.query.storeMembers.findFirst({
+    where: and(eq(storeMembers.storeId, storeId), eq(storeMembers.userId, userId)),
+  })
+  if (!member) {
+    return c.json({ success: false, error: { code: 'NOT_FOUND', message: '해당 가게의 멤버가 아닙니다.' } }, 404)
+  }
+  if (member.role === 'owner') {
+    return c.json({ success: false, error: { code: 'OWNER_CANNOT_LEAVE', message: '가게 owner는 나갈 수 없습니다. 가게를 삭제해주세요.' } }, 400)
+  }
+
+  await db.delete(storeMembers).where(and(eq(storeMembers.storeId, storeId), eq(storeMembers.userId, userId)))
+
+  return c.json({ success: true, data: null })
+})
+
 storesRouter.delete('/:storeId/members/:targetUserId', authMiddleware, async (c) => {
   const storeId = c.req.param('storeId')
   const targetUserId = c.req.param('targetUserId')
@@ -407,6 +429,25 @@ storesRouter.post('/:storeId/invite-code', authMiddleware, async (c) => {
     .returning({ inviteCode: stores.inviteCode })
 
   return c.json({ success: true, data: { inviteCode: updated.inviteCode } })
+})
+
+storesRouter.delete('/:storeId', authMiddleware, async (c) => {
+  const storeId = c.req.param('storeId')
+  const userId = c.get('userId')
+
+  const member = await db.query.storeMembers.findFirst({
+    where: and(eq(storeMembers.storeId, storeId), eq(storeMembers.userId, userId)),
+  })
+  if (!member || member.role !== 'owner') {
+    return c.json({ success: false, error: { code: 'FORBIDDEN', message: '권한이 없습니다.' } }, 403)
+  }
+
+  const [deleted] = await db.delete(stores).where(eq(stores.id, storeId)).returning({ id: stores.id })
+  if (!deleted) {
+    return c.json({ success: false, error: { code: 'NOT_FOUND', message: '가게를 찾을 수 없습니다.' } }, 404)
+  }
+
+  return c.json({ success: true, data: null })
 })
 
 storesRouter.post('/:storeId/reset', authMiddleware, async (c) => {
