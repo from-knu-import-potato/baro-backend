@@ -412,6 +412,25 @@ storesRouter.post('/:storeId/invite-code', authMiddleware, async (c) => {
   return c.json({ success: true, data: { inviteCode: updated.inviteCode } })
 })
 
+storesRouter.delete('/:storeId', authMiddleware, async (c) => {
+  const storeId = c.req.param('storeId')
+  const userId = c.get('userId')
+
+  const member = await db.query.storeMembers.findFirst({
+    where: and(eq(storeMembers.storeId, storeId), eq(storeMembers.userId, userId)),
+  })
+  if (!member || member.role !== 'owner') {
+    return c.json({ success: false, error: { code: 'FORBIDDEN', message: '권한이 없습니다.' } }, 403)
+  }
+
+  const [deleted] = await db.delete(stores).where(eq(stores.id, storeId)).returning({ id: stores.id })
+  if (!deleted) {
+    return c.json({ success: false, error: { code: 'NOT_FOUND', message: '가게를 찾을 수 없습니다.' } }, 404)
+  }
+
+  return c.json({ success: true, data: null })
+})
+
 storesRouter.post('/:storeId/reset', authMiddleware, async (c) => {
   const storeId = c.req.param('storeId')
   const userId = c.get('userId')
