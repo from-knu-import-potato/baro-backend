@@ -49,6 +49,7 @@ function resolvePurchaseConversions(
 ): { purchaseUnit: string; purchaseAmount: number }[] {
   return (map.get(ingredientId) ?? []).map(({ purchaseUnit, factor }) => ({
     purchaseUnit,
+    factor,
     purchaseAmount: Math.ceil(recommendedOrderAmount / factor),
   }))
 }
