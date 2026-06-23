@@ -159,7 +159,10 @@ Base URL: `/v1`
 | 메서드 | 경로 | 설명 |
 |---|---|---|
 | GET | `/closing/preview` | 마감 전 이론 사용량 미리보기 |
-| POST | `/closing/confirm` | 마감 확정 (재고 차감) |
+| GET | `/closing` | 마감 이력 목록 조회 |
+| GET | `/closing/:closingId` | 특정 마감 상세 조회 (판매 메뉴별 수량, 재고 차감 결과) |
+| POST | `/closing` | 마감 확정 (재고 차감) |
+| DELETE | `/closing/:closingId` | 마감 취소 (재고 복원) |
 
 ### 대시보드 (`/v1/stores/:storeId/dashboard`)
 | 메서드 | 경로 | 설명 |
