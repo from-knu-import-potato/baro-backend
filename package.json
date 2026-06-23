@@ -21,7 +21,6 @@
     "bcryptjs": "^3.0.3",
     "dotenv": "^17.4.2",
     "drizzle-orm": "^0.45.2",
-    "groq-sdk": "^1.2.1",
     "hono": "^4.12.23",
     "jose": "^6.2.3",
     "postgres": "^3.4.9",
