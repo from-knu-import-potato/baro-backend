@@ -168,6 +168,90 @@ closingRouter.get('/:storeId/closing', authMiddleware, async (c) => {
   return c.json({ success: true, data: history })
 })
 
+// 특정 마감 상세 조회
+closingRouter.get('/:storeId/closing/:closingId', authMiddleware, async (c) => {
+  const { storeId, closingId } = c.req.param()
+
+  const [closing] = await db
+    .select({ id: closings.id, date: closings.date, totalRevenue: closings.totalRevenue, createdAt: closings.createdAt })
+    .from(closings)
+    .where(and(eq(closings.id, closingId), eq(closings.storeId, storeId)))
+    .limit(1)
+
+  if (!closing) {
+    return c.json({ success: false, error: { code: 'NOT_FOUND', message: '마감 기록을 찾을 수 없습니다.' } }, 404)
+  }
+
+  const deductions = await db
+    .select({
+      ingredientId: closingDeductions.ingredientId,
+      ingredientName: ingredients.name,
+      unit: ingredients.unit,
+      usedAmount: closingDeductions.usedAmount,
+      remainingStock: closingDeductions.remainingStock,
+    })
+    .from(closingDeductions)
+    .innerJoin(ingredients, eq(closingDeductions.ingredientId, ingredients.id))
+    .where(eq(closingDeductions.closingId, closingId))
+
+  const { start, end } = getKSTDateRange(closing.date)
+
+  const dayOrders = await db.query.orders.findMany({
+    where: and(
+      eq(orders.storeId, storeId),
+      eq(orders.status, 'completed'),
+      gte(orders.createdAt, start),
+      lt(orders.createdAt, end),
+    ),
+    with: { items: true },
+  })
+
+  const menuQuantityMap = new Map<string, number>()
+  const menuPriceMap = new Map<string, number>()
+  for (const order of dayOrders) {
+    for (const item of order.items) {
+      menuQuantityMap.set(item.menuId, (menuQuantityMap.get(item.menuId) ?? 0) + item.quantity)
+      menuPriceMap.set(item.menuId, item.unitPrice)
+    }
+  }
+
+  const menuIds = [...menuQuantityMap.keys()]
+  let soldMenus: { menuId: string; menuName: string; quantity: number; unitPrice: number; subtotal: number }[] = []
+
+  if (menuIds.length > 0) {
+    const menuList = await db
+      .select({ id: menus.id, name: menus.name })
+      .from(menus)
+      .where(inArray(menus.id, menuIds))
+
+    const menuNameMap = new Map(menuList.map((m) => [m.id, m.name]))
+
+    soldMenus = menuIds.map((menuId) => {
+      const quantity = menuQuantityMap.get(menuId)!
+      const unitPrice = menuPriceMap.get(menuId)!
+      return { menuId, menuName: menuNameMap.get(menuId) ?? '', quantity, unitPrice, subtotal: quantity * unitPrice }
+    })
+  }
+
+  return c.json({
+    success: true,
+    data: {
+      id: closing.id,
+      date: closing.date,
+      totalRevenue: closing.totalRevenue,
+      createdAt: closing.createdAt,
+      soldMenus,
+      inventoryDeductions: deductions.map((d) => ({
+        ingredientId: d.ingredientId,
+        ingredientName: d.ingredientName,
+        unit: d.unit,
+        usedAmount: Number(d.usedAmount),
+        remainingStock: Number(d.remainingStock),
+      })),
+    },
+  })
+})
+
 // 마감 완료 처리
 const closingConfirmSchema = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
