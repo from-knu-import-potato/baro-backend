@@ -1,4 +1,4 @@
-import { Hono } from 'hono'
+﻿import { OpenAPIHono } from '@hono/zod-openapi'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import { randomBytes } from 'crypto'
@@ -11,7 +11,7 @@ import { eq, sql, and } from 'drizzle-orm'
 
 const generateInviteCode = () => randomBytes(4).toString('hex').toUpperCase()
 
-const storesRouter = new Hono<AppEnv>()
+const storesRouter = new OpenAPIHono<AppEnv>()
 
 const DAY_MAP: Record<string, number> = {
   sunday: 0,
@@ -473,4 +473,121 @@ storesRouter.post('/:storeId/reset', authMiddleware, async (c) => {
   return c.json({ success: true, data: null })
 })
 
+// OpenAPI registrations
+const storeIdParam = { name: 'storeId', in: 'path' as const, required: true, schema: { type: 'string' as const, format: 'uuid' } }
+const bearerSecurity = [{ bearerAuth: [] }]
+
+storesRouter.openAPIRegistry.registerPath({
+  method: 'post',
+  path: '/setup',
+  tags: ['Stores'],
+  summary: '가게 초기 세팅 (가게 생성)',
+  security: bearerSecurity,
+  requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', description: '가게 세팅 정보 (basicInfo, operatingHours, menuItems, ingredients, recipes)' } } } },
+  responses: { 201: { description: '가게 생성 완료' }, 401: { description: '인증 필요' } },
+})
+
+storesRouter.openAPIRegistry.registerPath({
+  method: 'post',
+  path: '/join',
+  tags: ['Stores'],
+  summary: '초대 코드로 가게 참여',
+  security: bearerSecurity,
+  requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', required: ['inviteCode'], properties: { inviteCode: { type: 'string' } } } } } },
+  responses: { 201: { description: '가게 참여 완료' }, 404: { description: '유효하지 않은 초대 코드' }, 409: { description: '이미 참여한 가게' } },
+})
+
+storesRouter.openAPIRegistry.registerPath({
+  method: 'get',
+  path: '/{storeId}',
+  tags: ['Stores'],
+  summary: '가게 정보 조회',
+  parameters: [storeIdParam],
+  responses: { 200: { description: '가게 정보' }, 404: { description: '가게 없음' } },
+})
+
+storesRouter.openAPIRegistry.registerPath({
+  method: 'patch',
+  path: '/{storeId}',
+  tags: ['Stores'],
+  summary: '가게 정보 수정',
+  security: bearerSecurity,
+  parameters: [storeIdParam],
+  requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', description: '수정할 가게 정보' } } } },
+  responses: { 200: { description: '수정 완료' }, 401: { description: '인증 필요' }, 404: { description: '가게 없음' } },
+})
+
+storesRouter.openAPIRegistry.registerPath({
+  method: 'patch',
+  path: '/{storeId}/operating-hours',
+  tags: ['Stores'],
+  summary: '운영 시간 수정',
+  security: bearerSecurity,
+  parameters: [storeIdParam],
+  requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', required: ['operatingHours'], properties: { operatingHours: { type: 'array', items: { type: 'object' } } } } } } },
+  responses: { 200: { description: '운영 시간 수정 완료' }, 401: { description: '인증 필요' } },
+})
+
+storesRouter.openAPIRegistry.registerPath({
+  method: 'get',
+  path: '/{storeId}/members',
+  tags: ['Stores'],
+  summary: '가게 멤버 목록 조회',
+  security: bearerSecurity,
+  parameters: [storeIdParam],
+  responses: { 200: { description: '멤버 목록' }, 401: { description: '인증 필요' }, 403: { description: '권한 없음' } },
+})
+
+storesRouter.openAPIRegistry.registerPath({
+  method: 'delete',
+  path: '/{storeId}/members/me',
+  tags: ['Stores'],
+  summary: '가게에서 탈퇴 (본인)',
+  security: bearerSecurity,
+  parameters: [storeIdParam],
+  responses: { 200: { description: '탈퇴 완료' }, 400: { description: 'Owner는 탈퇴 불가' }, 404: { description: '멤버 아님' } },
+})
+
+storesRouter.openAPIRegistry.registerPath({
+  method: 'delete',
+  path: '/{storeId}/members/{targetUserId}',
+  tags: ['Stores'],
+  summary: '멤버 강제 퇴출 (Owner 전용)',
+  security: bearerSecurity,
+  parameters: [storeIdParam, { name: 'targetUserId', in: 'path', required: true, schema: { type: 'string' as const, format: 'uuid' } }],
+  responses: { 200: { description: '퇴출 완료' }, 403: { description: '권한 없음' }, 404: { description: '멤버 없음' } },
+})
+
+storesRouter.openAPIRegistry.registerPath({
+  method: 'post',
+  path: '/{storeId}/invite-code',
+  tags: ['Stores'],
+  summary: '초대 코드 재발급',
+  security: bearerSecurity,
+  parameters: [storeIdParam],
+  responses: { 200: { description: '새 초대 코드 반환' }, 403: { description: '권한 없음' } },
+})
+
+storesRouter.openAPIRegistry.registerPath({
+  method: 'delete',
+  path: '/{storeId}',
+  tags: ['Stores'],
+  summary: '가게 삭제',
+  security: bearerSecurity,
+  parameters: [storeIdParam],
+  responses: { 200: { description: '삭제 완료' }, 403: { description: '권한 없음' }, 404: { description: '가게 없음' } },
+})
+
+storesRouter.openAPIRegistry.registerPath({
+  method: 'post',
+  path: '/{storeId}/reset',
+  tags: ['Stores'],
+  summary: '가게 데이터 초기화',
+  security: bearerSecurity,
+  parameters: [storeIdParam],
+  responses: { 200: { description: '초기화 완료' }, 403: { description: '권한 없음' } },
+})
+
 export default storesRouter
+
+

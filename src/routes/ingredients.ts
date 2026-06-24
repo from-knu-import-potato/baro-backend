@@ -1,4 +1,4 @@
-import { Hono } from 'hono'
+﻿import { OpenAPIHono } from '@hono/zod-openapi'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import { db } from '../db/index.js'
@@ -7,7 +7,7 @@ import type { AppEnv } from '../types/index.js'
 import { authMiddleware } from '../middleware/auth.js'
 import { eq, and, sql, inArray, desc } from 'drizzle-orm'
 
-const ingredientsRouter = new Hono<AppEnv>()
+const ingredientsRouter = new OpenAPIHono<AppEnv>()
 
 const ingredientSchema = z.object({
   name: z.string().min(1),
@@ -339,4 +339,85 @@ ingredientsRouter.put('/:storeId/unit-conversions', authMiddleware, zValidator('
   return c.json({ success: true, data: null })
 })
 
+// OpenAPI registrations
+const storeIdParam = { name: 'storeId', in: 'path' as const, required: true, schema: { type: 'string' as const, format: 'uuid' } }
+const ingredientIdParam = { name: 'id', in: 'path' as const, required: true, schema: { type: 'string' as const, format: 'uuid' } }
+const bearerSecurity = [{ bearerAuth: [] }]
+
+ingredientsRouter.openAPIRegistry.registerPath({
+  method: 'get',
+  path: '/{storeId}/ingredients',
+  tags: ['Ingredients'],
+  summary: '식자재 목록 조회',
+  security: bearerSecurity,
+  parameters: [storeIdParam, { name: 'archived', in: 'query', required: false, schema: { type: 'boolean' as const }, description: 'true이면 보관된 식자재 조회' }],
+  responses: { 200: { description: '식자재 목록 (유통기한 및 입고일 포함)' }, 401: { description: '인증 필요' } },
+})
+
+ingredientsRouter.openAPIRegistry.registerPath({
+  method: 'post',
+  path: '/{storeId}/ingredients',
+  tags: ['Ingredients'],
+  summary: '식자재 등록',
+  security: bearerSecurity,
+  parameters: [storeIdParam],
+  requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', required: ['name', 'unit'], properties: { name: { type: 'string' }, unit: { type: 'string', enum: ['g', 'ml', '개'] }, currentStock: { type: 'number' }, safetyStock: { type: 'number' } } } } } },
+  responses: { 201: { description: '생성된 식자재' }, 401: { description: '인증 필요' } },
+})
+
+ingredientsRouter.openAPIRegistry.registerPath({
+  method: 'patch',
+  path: '/{storeId}/ingredients/{id}',
+  tags: ['Ingredients'],
+  summary: '식자재 수정',
+  security: bearerSecurity,
+  parameters: [storeIdParam, ingredientIdParam],
+  requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', description: '수정할 식자재 정보 (partial)' } } } },
+  responses: { 200: { description: '수정된 식자재' }, 401: { description: '인증 필요' }, 404: { description: '식자재 없음' } },
+})
+
+ingredientsRouter.openAPIRegistry.registerPath({
+  method: 'delete',
+  path: '/{storeId}/ingredients/{id}',
+  tags: ['Ingredients'],
+  summary: '식자재 삭제',
+  security: bearerSecurity,
+  parameters: [storeIdParam, ingredientIdParam, { name: 'force', in: 'query', required: false, schema: { type: 'boolean' as const }, description: 'true이면 관련 기록 포함 강제 삭제' }],
+  responses: { 200: { description: '삭제 완료' }, 401: { description: '인증 필요' }, 409: { description: '관련 기록 존재 (force=true로 강제 삭제)' } },
+})
+
+ingredientsRouter.openAPIRegistry.registerPath({
+  method: 'post',
+  path: '/{storeId}/ingredients/inbound',
+  tags: ['Ingredients'],
+  summary: '입고 처리 (OCR 확정 후)',
+  security: bearerSecurity,
+  parameters: [storeIdParam],
+  requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', required: ['items'], properties: { metadata: { type: 'object', description: '거래 메타데이터' }, items: { type: 'array', items: { type: 'object' }, minItems: 1 } } } } } },
+  responses: { 201: { description: '입고 처리 완료, inboundRecordId 반환' }, 400: { description: '유효하지 않은 식자재' }, 401: { description: '인증 필요' } },
+})
+
+ingredientsRouter.openAPIRegistry.registerPath({
+  method: 'get',
+  path: '/{storeId}/unit-conversions',
+  tags: ['Ingredients'],
+  summary: '구매 단위 변환 목록 조회',
+  security: bearerSecurity,
+  parameters: [storeIdParam],
+  responses: { 200: { description: '단위 변환 목록' }, 401: { description: '인증 필요' } },
+})
+
+ingredientsRouter.openAPIRegistry.registerPath({
+  method: 'put',
+  path: '/{storeId}/unit-conversions',
+  tags: ['Ingredients'],
+  summary: '구매 단위 변환 저장/갱신 (bulk upsert)',
+  security: bearerSecurity,
+  parameters: [storeIdParam],
+  requestBody: { required: true, content: { 'application/json': { schema: { type: 'array', items: { type: 'object', required: ['ingredientId', 'purchaseUnit', 'baseUnit', 'factor'], properties: { ingredientId: { type: 'string', format: 'uuid' }, purchaseUnit: { type: 'string' }, baseUnit: { type: 'string', enum: ['g', 'ml', '개'] }, factor: { type: 'number', minimum: 0 } } }, minItems: 1 } } } },
+  responses: { 200: { description: '저장 완료' }, 400: { description: '유효하지 않은 식자재' }, 401: { description: '인증 필요' } },
+})
+
 export default ingredientsRouter
+
+

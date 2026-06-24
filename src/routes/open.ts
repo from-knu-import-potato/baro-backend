@@ -1,4 +1,4 @@
-import { Hono } from 'hono'
+﻿import { OpenAPIHono } from '@hono/zod-openapi'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import { db } from '../db/index.js'
@@ -8,7 +8,7 @@ import { authMiddleware } from '../middleware/auth.js'
 import { eq, and, desc } from 'drizzle-orm'
 import { toKSTDateStr } from '../lib/kst.js'
 
-const openRouter = new Hono<AppEnv>()
+const openRouter = new OpenAPIHono<AppEnv>()
 
 const openSchema = z.object({
   businessDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -113,4 +113,33 @@ openRouter.get('/:storeId/open/status', authMiddleware, async (c) => {
   })
 })
 
+// OpenAPI registrations
+const storeIdParam = { name: 'storeId', in: 'path' as const, required: true, schema: { type: 'string' as const, format: 'uuid' } }
+const bearerSecurity = [{ bearerAuth: [] }]
+
+openRouter.openAPIRegistry.registerPath({
+  method: 'post',
+  path: '/{storeId}/open',
+  tags: ['Store Open'],
+  summary: '개점 처리',
+  description: '가게 개점을 기록합니다. 같은 businessDate 중복 호출 시 기존 레코드를 반환합니다 (멱등성).',
+  security: bearerSecurity,
+  parameters: [storeIdParam],
+  requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', required: ['businessDate'], properties: { businessDate: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$', description: '영업 기준 날짜 (YYYY-MM-DD)' } } } } } },
+  responses: { 200: { description: '이미 개점된 날짜 (기존 레코드 반환)' }, 201: { description: '개점 완료' }, 401: { description: '인증 필요' } },
+})
+
+openRouter.openAPIRegistry.registerPath({
+  method: 'get',
+  path: '/{storeId}/open/status',
+  tags: ['Store Open'],
+  summary: '개점 상태 조회',
+  description: '현재 영업 기준 날짜의 개점/마감 상태를 반환합니다.',
+  security: bearerSecurity,
+  parameters: [storeIdParam],
+  responses: { 200: { description: '개점 상태 (isOpen, businessDate, openedAt)' }, 401: { description: '인증 필요' } },
+})
+
 export default openRouter
+
+
