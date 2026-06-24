@@ -63,7 +63,7 @@ app.doc("/openapi.json", {
   openapi: "3.0.0",
   info: {
     title: "BARO API",
-    version: "1.1.1",
+    version: "1.2.0",
     description: "BARO 가게 운영 SaaS — OCR·AI 기반 통합 가게 운영 플랫폼 API",
   },
   servers: [
