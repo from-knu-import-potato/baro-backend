@@ -1,4 +1,4 @@
-import { Hono } from 'hono'
+﻿import { OpenAPIHono } from '@hono/zod-openapi'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import { db } from '../db/index.js'
@@ -8,7 +8,7 @@ import { authMiddleware } from '../middleware/auth.js'
 import { eq } from 'drizzle-orm'
 import { supabase } from '../lib/supabase.js'
 
-const themeRouter = new Hono<AppEnv>()
+const themeRouter = new OpenAPIHono<AppEnv>()
 
 const THEME_COLORS = [
   'navy', 'slate', 'teal', 'charcoal',
@@ -93,4 +93,41 @@ themeRouter.post('/:storeId/theme/banner', authMiddleware, async (c) => {
   return c.json({ success: true, data: toThemeResponse(updated) }, 201)
 })
 
+// OpenAPI registrations
+const storeIdParam = { name: 'storeId', in: 'path' as const, required: true, schema: { type: 'string' as const, format: 'uuid' } }
+const bearerSecurity = [{ bearerAuth: [] }]
+
+themeRouter.openAPIRegistry.registerPath({
+  method: 'get',
+  path: '/{storeId}/theme',
+  tags: ['Theme'],
+  summary: '가게 테마 조회',
+  parameters: [storeIdParam],
+  responses: { 200: { description: '테마 정보 (themeColor, layout, bannerImageUrl, bannerPosition)' }, 404: { description: '가게 없음' } },
+})
+
+themeRouter.openAPIRegistry.registerPath({
+  method: 'patch',
+  path: '/{storeId}/theme',
+  tags: ['Theme'],
+  summary: '가게 테마 수정',
+  security: bearerSecurity,
+  parameters: [storeIdParam],
+  requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', properties: { themeColor: { type: 'string', enum: ['navy', 'slate', 'teal', 'charcoal', 'mauve', 'sage', 'lavender', 'terra', 'warmgray', 'coolgray', 'blue', 'green'] }, layout: { type: 'string', enum: ['list', 'grid'] }, bannerImageUrl: { type: 'string', nullable: true }, bannerPosition: { type: 'string' } } } } } },
+  responses: { 200: { description: '수정된 테마 정보' }, 400: { description: '변경 항목 없음' }, 401: { description: '인증 필요' }, 404: { description: '가게 없음' } },
+})
+
+themeRouter.openAPIRegistry.registerPath({
+  method: 'post',
+  path: '/{storeId}/theme/banner',
+  tags: ['Theme'],
+  summary: '배너 이미지 업로드',
+  security: bearerSecurity,
+  parameters: [storeIdParam],
+  requestBody: { required: true, content: { 'multipart/form-data': { schema: { type: 'object', required: ['file'], properties: { file: { type: 'string', format: 'binary' } } } } } },
+  responses: { 201: { description: '업로드 완료, 테마 정보 반환' }, 400: { description: '파일 없음' }, 401: { description: '인증 필요' }, 404: { description: '가게 없음' }, 500: { description: '업로드 실패' } },
+})
+
 export default themeRouter
+
+

@@ -1,4 +1,4 @@
-import { Hono } from 'hono'
+﻿import { OpenAPIHono } from '@hono/zod-openapi'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import { db } from '../db/index.js'
@@ -8,7 +8,7 @@ import { authMiddleware } from '../middleware/auth.js'
 import { eq, and, inArray, gte, lt, sql, desc } from 'drizzle-orm'
 import { toKSTDateStr, getKSTDateRange, getBusinessDateStr, isValidClosingDate } from '../lib/kst.js'
 
-const closingRouter = new Hono<AppEnv>()
+const closingRouter = new OpenAPIHono<AppEnv>()
 
 async function getTodayOpenTime(storeId: string): Promise<string | null> {
   const kstDayOfWeek = new Date(Date.now() + 9 * 60 * 60 * 1000).getUTCDay()
@@ -391,4 +391,63 @@ closingRouter.delete('/:storeId/closing/:closingId', authMiddleware, async (c) =
   return c.json({ success: true, data: null })
 })
 
+// OpenAPI registrations
+const storeIdParam = { name: 'storeId', in: 'path' as const, required: true, schema: { type: 'string' as const, format: 'uuid' } }
+const closingIdParam = { name: 'closingId', in: 'path' as const, required: true, schema: { type: 'string' as const, format: 'uuid' } }
+const bearerSecurity = [{ bearerAuth: [] }]
+
+closingRouter.openAPIRegistry.registerPath({
+  method: 'get',
+  path: '/{storeId}/closing/preview',
+  tags: ['Closing'],
+  summary: '마감 미리보기',
+  description: '마감 전 이론적 재고 차감량을 미리 확인합니다.',
+  security: bearerSecurity,
+  parameters: [storeIdParam, { name: 'date', in: 'query', required: false, schema: { type: 'string' as const, pattern: '^\\d{4}-\\d{2}-\\d{2}$' }, description: '소급 마감 날짜 (어제까지만 가능)' }],
+  responses: { 200: { description: '마감 미리보기 (soldMenus, inventoryDeductions 포함)' }, 400: { description: '소급 마감 범위 초과' }, 401: { description: '인증 필요' } },
+})
+
+closingRouter.openAPIRegistry.registerPath({
+  method: 'get',
+  path: '/{storeId}/closing',
+  tags: ['Closing'],
+  summary: '마감 이력 목록 조회',
+  security: bearerSecurity,
+  parameters: [storeIdParam],
+  responses: { 200: { description: '마감 이력 목록 (날짜 내림차순)' }, 401: { description: '인증 필요' } },
+})
+
+closingRouter.openAPIRegistry.registerPath({
+  method: 'get',
+  path: '/{storeId}/closing/{closingId}',
+  tags: ['Closing'],
+  summary: '특정 마감 상세 조회',
+  security: bearerSecurity,
+  parameters: [storeIdParam, closingIdParam],
+  responses: { 200: { description: '마감 상세 (soldMenus, inventoryDeductions 포함)' }, 401: { description: '인증 필요' }, 404: { description: '마감 기록 없음' } },
+})
+
+closingRouter.openAPIRegistry.registerPath({
+  method: 'post',
+  path: '/{storeId}/closing',
+  tags: ['Closing'],
+  summary: '마감 확정 (재고 차감)',
+  security: bearerSecurity,
+  parameters: [storeIdParam],
+  requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', required: ['inventoryDeductions'], properties: { date: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$', description: '소급 마감 날짜 (생략 시 오늘)' }, inventoryDeductions: { type: 'array', items: { type: 'object', required: ['ingredientId', 'actualUsage'], properties: { ingredientId: { type: 'string', format: 'uuid' }, actualUsage: { type: 'number', minimum: 0 } } } } } } } } },
+  responses: { 201: { description: '마감 완료, closingId 반환' }, 400: { description: '유효하지 않은 날짜 또는 식자재' }, 401: { description: '인증 필요' }, 409: { description: '이미 마감된 날짜' } },
+})
+
+closingRouter.openAPIRegistry.registerPath({
+  method: 'delete',
+  path: '/{storeId}/closing/{closingId}',
+  tags: ['Closing'],
+  summary: '마감 취소 (재고 복원)',
+  security: bearerSecurity,
+  parameters: [storeIdParam, closingIdParam],
+  responses: { 200: { description: '마감 취소 및 재고 복원 완료' }, 401: { description: '인증 필요' }, 404: { description: '마감 기록 없음' } },
+})
+
 export default closingRouter
+
+

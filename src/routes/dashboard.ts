@@ -1,4 +1,4 @@
-import { Hono } from 'hono'
+﻿import { OpenAPIHono } from '@hono/zod-openapi'
 import { db } from '../db/index.js'
 import { orders, ingredients, inboundItems, inboundRecords, closings, orderGuides, orderGuideItems } from '../db/schema.js'
 import type { AppEnv } from '../types/index.js'
@@ -6,7 +6,7 @@ import { authMiddleware } from '../middleware/auth.js'
 import { eq, and, gte, lt, ne, count, sql, desc } from 'drizzle-orm'
 import { toKSTDateStr } from '../lib/kst.js'
 
-const dashboardRouter = new Hono<AppEnv>()
+const dashboardRouter = new OpenAPIHono<AppEnv>()
 
 // 대시보드 통계 요약
 dashboardRouter.get('/:storeId/dashboard/stats', authMiddleware, async (c) => {
@@ -153,4 +153,31 @@ dashboardRouter.get('/:storeId/dashboard/sales', authMiddleware, async (c) => {
   return c.json({ success: true, data: salesData })
 })
 
+// OpenAPI registrations
+const storeIdParam = { name: 'storeId', in: 'path' as const, required: true, schema: { type: 'string' as const, format: 'uuid' } }
+const bearerSecurity = [{ bearerAuth: [] }]
+
+dashboardRouter.openAPIRegistry.registerPath({
+  method: 'get',
+  path: '/{storeId}/dashboard/stats',
+  tags: ['Dashboard'],
+  summary: '대시보드 통계 요약',
+  description: '총 재고 수, 유통기한 임박 품목, AI 발주 추천 수, 월 매출, 마감 누락 여부를 반환합니다.',
+  security: bearerSecurity,
+  parameters: [storeIdParam],
+  responses: { 200: { description: '대시보드 통계 요약' }, 401: { description: '인증 필요' } },
+})
+
+dashboardRouter.openAPIRegistry.registerPath({
+  method: 'get',
+  path: '/{storeId}/dashboard/sales',
+  tags: ['Dashboard'],
+  summary: '월별 매출 데이터 (최근 12개월)',
+  security: bearerSecurity,
+  parameters: [storeIdParam],
+  responses: { 200: { description: '월별 매출 및 입고 비용 데이터' }, 401: { description: '인증 필요' } },
+})
+
 export default dashboardRouter
+
+

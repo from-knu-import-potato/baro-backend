@@ -1,4 +1,4 @@
-import { Hono } from 'hono'
+﻿import { OpenAPIHono } from '@hono/zod-openapi'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import { db } from '../db/index.js'
@@ -7,7 +7,7 @@ import type { AppEnv } from '../types/index.js'
 import { authMiddleware } from '../middleware/auth.js'
 import { eq, and, asc } from 'drizzle-orm'
 
-const menuCategoriesRouter = new Hono<AppEnv>()
+const menuCategoriesRouter = new OpenAPIHono<AppEnv>()
 
 const toResponse = (cat: typeof menuCategories.$inferSelect) => ({
   id: cat.id,
@@ -104,4 +104,63 @@ menuCategoriesRouter.delete('/:storeId/menu-categories/:categoryId', authMiddlew
   return c.json({ success: true, data: null })
 })
 
+// OpenAPI registrations
+const storeIdParam = { name: 'storeId', in: 'path' as const, required: true, schema: { type: 'string' as const, format: 'uuid' } }
+const categoryIdParam = { name: 'categoryId', in: 'path' as const, required: true, schema: { type: 'string' as const, format: 'uuid' } }
+const bearerSecurity = [{ bearerAuth: [] }]
+
+menuCategoriesRouter.openAPIRegistry.registerPath({
+  method: 'get',
+  path: '/{storeId}/menu-categories',
+  tags: ['Menu Categories'],
+  summary: '메뉴 카테고리 목록 조회',
+  parameters: [storeIdParam],
+  responses: { 200: { description: '카테고리 목록 (sortOrder 순)' } },
+})
+
+menuCategoriesRouter.openAPIRegistry.registerPath({
+  method: 'post',
+  path: '/{storeId}/menu-categories',
+  tags: ['Menu Categories'],
+  summary: '메뉴 카테고리 생성',
+  security: bearerSecurity,
+  parameters: [storeIdParam],
+  requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', required: ['name'], properties: { name: { type: 'string', minLength: 1 } } } } } },
+  responses: { 201: { description: '생성된 카테고리' }, 401: { description: '인증 필요' } },
+})
+
+menuCategoriesRouter.openAPIRegistry.registerPath({
+  method: 'patch',
+  path: '/{storeId}/menu-categories/reorder',
+  tags: ['Menu Categories'],
+  summary: '카테고리 순서 변경',
+  security: bearerSecurity,
+  parameters: [storeIdParam],
+  requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', required: ['categoryIds'], properties: { categoryIds: { type: 'array', items: { type: 'string', format: 'uuid' }, minItems: 1 } } } } } },
+  responses: { 200: { description: '순서 변경 완료' }, 401: { description: '인증 필요' } },
+})
+
+menuCategoriesRouter.openAPIRegistry.registerPath({
+  method: 'patch',
+  path: '/{storeId}/menu-categories/{categoryId}',
+  tags: ['Menu Categories'],
+  summary: '카테고리 이름 수정',
+  security: bearerSecurity,
+  parameters: [storeIdParam, categoryIdParam],
+  requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', required: ['name'], properties: { name: { type: 'string', minLength: 1 } } } } } },
+  responses: { 200: { description: '수정된 카테고리' }, 401: { description: '인증 필요' }, 404: { description: '카테고리 없음' } },
+})
+
+menuCategoriesRouter.openAPIRegistry.registerPath({
+  method: 'delete',
+  path: '/{storeId}/menu-categories/{categoryId}',
+  tags: ['Menu Categories'],
+  summary: '카테고리 삭제',
+  security: bearerSecurity,
+  parameters: [storeIdParam, categoryIdParam],
+  responses: { 200: { description: '삭제 완료' }, 401: { description: '인증 필요' } },
+})
+
 export default menuCategoriesRouter
+
+

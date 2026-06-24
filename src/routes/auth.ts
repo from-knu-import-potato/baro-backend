@@ -1,4 +1,4 @@
-import { Hono } from 'hono'
+﻿import { OpenAPIHono } from '@hono/zod-openapi'
 import { db } from '../db/index.js'
 import { users } from '../db/schema.js'
 import { signAccessToken, signRefreshToken, verifyRefreshToken } from '../lib/jwt.js'
@@ -12,7 +12,7 @@ const ALLOWED_ORIGINS = [
   'https://qa-baro-web.vercel.app',
 ]
 
-const auth = new Hono()
+const auth = new OpenAPIHono()
 
 auth.get('/kakao', (c) => {
   const returnUrl = c.req.query('returnUrl') ?? process.env.FRONTEND_URL ?? 'http://localhost:5173'
@@ -176,4 +176,119 @@ auth.post('/refresh', async (c) => {
   }
 })
 
+// OpenAPI registrations
+auth.openAPIRegistry.registerPath({
+  method: 'get',
+  path: '/kakao',
+  tags: ['Auth'],
+  summary: '카카오 OAuth 리다이렉트',
+  description: '카카오 로그인 페이지로 리다이렉트합니다.',
+  parameters: [{ name: 'returnUrl', in: 'query', required: false, schema: { type: 'string' as const } }],
+  responses: { 302: { description: '카카오 로그인 페이지로 리다이렉트' } },
+})
+
+auth.openAPIRegistry.registerPath({
+  method: 'get',
+  path: '/kakao/callback',
+  tags: ['Auth'],
+  summary: '카카오 OAuth 콜백',
+  description: '카카오 인증 후 콜백을 처리하고 JWT 토큰을 발급합니다.',
+  parameters: [
+    { name: 'code', in: 'query', required: true, schema: { type: 'string' as const } },
+    { name: 'state', in: 'query', required: false, schema: { type: 'string' as const } },
+  ],
+  responses: { 302: { description: '프론트엔드로 JWT 토큰과 함께 리다이렉트' } },
+})
+
+auth.openAPIRegistry.registerPath({
+  method: 'post',
+  path: '/register',
+  tags: ['Auth'],
+  summary: '회원가입 (초대 코드 필요)',
+  requestBody: {
+    required: true,
+    content: {
+      'application/json': {
+        schema: {
+          type: 'object',
+          required: ['username', 'password', 'name', 'inviteCode'],
+          properties: {
+            username: { type: 'string', minLength: 3, maxLength: 30 },
+            password: { type: 'string', minLength: 6 },
+            name: { type: 'string', minLength: 1 },
+            inviteCode: { type: 'string' },
+          },
+        },
+      },
+    },
+  },
+  responses: {
+    201: { description: '회원가입 성공, 토큰 반환' },
+    400: { description: '유효하지 않은 요청' },
+    403: { description: '유효하지 않은 초대 코드' },
+    409: { description: '이미 사용 중인 아이디' },
+  },
+})
+
+auth.openAPIRegistry.registerPath({
+  method: 'post',
+  path: '/login',
+  tags: ['Auth'],
+  summary: '로그인',
+  requestBody: {
+    required: true,
+    content: {
+      'application/json': {
+        schema: {
+          type: 'object',
+          required: ['username', 'password'],
+          properties: {
+            username: { type: 'string' },
+            password: { type: 'string' },
+          },
+        },
+      },
+    },
+  },
+  responses: {
+    200: { description: '로그인 성공, 토큰 반환' },
+    400: { description: '유효하지 않은 요청' },
+    401: { description: '아이디 또는 비밀번호 불일치' },
+  },
+})
+
+auth.openAPIRegistry.registerPath({
+  method: 'post',
+  path: '/logout',
+  tags: ['Auth'],
+  summary: '로그아웃',
+  responses: { 200: { description: '로그아웃 성공' } },
+})
+
+auth.openAPIRegistry.registerPath({
+  method: 'post',
+  path: '/refresh',
+  tags: ['Auth'],
+  summary: 'Access Token 갱신',
+  requestBody: {
+    required: true,
+    content: {
+      'application/json': {
+        schema: {
+          type: 'object',
+          required: ['refreshToken'],
+          properties: { refreshToken: { type: 'string' } },
+        },
+      },
+    },
+  },
+  responses: {
+    200: { description: '새 Access Token 반환' },
+    400: { description: 'Refresh token 없음' },
+    401: { description: '유효하지 않은 refresh token' },
+  },
+})
+
 export default auth
+
+

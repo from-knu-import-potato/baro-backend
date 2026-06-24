@@ -1,4 +1,4 @@
-import { Hono } from 'hono'
+﻿import { OpenAPIHono } from '@hono/zod-openapi'
 import { GoogleGenAI } from '@google/genai'
 import { db } from '../db/index.js'
 import {
@@ -18,7 +18,7 @@ import type { AppEnv } from '../types/index.js'
 import { authMiddleware } from '../middleware/auth.js'
 import { eq, and, sql, inArray, gte, desc } from 'drizzle-orm'
 
-const orderGuideRouter = new Hono<AppEnv>()
+const orderGuideRouter = new OpenAPIHono<AppEnv>()
 
 const genai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! })
 
@@ -619,4 +619,32 @@ ${contextBlocks}
   })
 })
 
+// OpenAPI registrations
+const storeIdParam = { name: 'storeId', in: 'path' as const, required: true, schema: { type: 'string' as const, format: 'uuid' } }
+const bearerSecurity = [{ bearerAuth: [] }]
+
+orderGuideRouter.openAPIRegistry.registerPath({
+  method: 'get',
+  path: '/{storeId}/order-guide',
+  tags: ['Order Guide'],
+  summary: '발주 가이드 조회 (최근 AI 생성 결과)',
+  security: bearerSecurity,
+  parameters: [storeIdParam],
+  responses: { 200: { description: '발주 가이드 (generatedAt, summary, items, purchaseConversions 포함)' }, 401: { description: '인증 필요' } },
+})
+
+orderGuideRouter.openAPIRegistry.registerPath({
+  method: 'post',
+  path: '/{storeId}/order-guide/generate',
+  tags: ['Order Guide'],
+  summary: 'AI 발주 가이드 생성',
+  description: '재고·소비·유통기한 데이터를 분석하여 Gemini AI로 발주 추천 가이드를 생성하고 DB에 저장합니다.',
+  security: bearerSecurity,
+  parameters: [storeIdParam],
+  requestBody: { required: false, content: { 'application/json': { schema: { type: 'object', properties: { closingId: { type: 'string', format: 'uuid', description: '연결할 마감 ID (선택)' } } } } } },
+  responses: { 200: { description: '생성된 발주 가이드' }, 401: { description: '인증 필요' } },
+})
+
 export default orderGuideRouter
+
+
