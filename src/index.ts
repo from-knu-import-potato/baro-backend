@@ -69,7 +69,7 @@ app.doc("/openapi.json", {
   servers: [
     { url: "http://localhost:3000", description: "개발 서버" },
     {
-      url: "https://baro-backend-production.up.railway.app",
+      url: "https://baro-backend-production-c908.up.railway.app",
       description: "프로덕션 서버",
     },
   ],
