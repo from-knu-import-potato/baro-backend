@@ -1,4 +1,4 @@
-import { Hono } from 'hono'
+﻿import { OpenAPIHono } from '@hono/zod-openapi'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import { db } from '../db/index.js'
@@ -7,7 +7,7 @@ import type { AppEnv } from '../types/index.js'
 import { authMiddleware } from '../middleware/auth.js'
 import { eq, and } from 'drizzle-orm'
 
-const recipesRouter = new Hono<AppEnv>()
+const recipesRouter = new OpenAPIHono<AppEnv>()
 
 const recipeSchema = z.object({
   menuId: z.string().uuid(),
@@ -56,4 +56,41 @@ recipesRouter.delete('/:storeId/recipes/:recipeId', authMiddleware, async (c) =>
   return c.json({ success: true, data: null })
 })
 
+// OpenAPI registrations
+const storeIdParam = { name: 'storeId', in: 'path' as const, required: true, schema: { type: 'string' as const, format: 'uuid' } }
+const bearerSecurity = [{ bearerAuth: [] }]
+
+recipesRouter.openAPIRegistry.registerPath({
+  method: 'get',
+  path: '/{storeId}/recipes',
+  tags: ['Recipes'],
+  summary: '레시피 목록 조회',
+  security: bearerSecurity,
+  parameters: [storeIdParam],
+  responses: { 200: { description: '레시피 목록 (메뉴명, 식자재명 포함)' }, 401: { description: '인증 필요' } },
+})
+
+recipesRouter.openAPIRegistry.registerPath({
+  method: 'post',
+  path: '/{storeId}/recipes',
+  tags: ['Recipes'],
+  summary: '레시피 생성',
+  security: bearerSecurity,
+  parameters: [storeIdParam],
+  requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', required: ['menuId', 'ingredientId', 'amount'], properties: { menuId: { type: 'string', format: 'uuid' }, ingredientId: { type: 'string', format: 'uuid' }, amount: { type: 'number', minimum: 0, exclusiveMinimum: 0 } } } } } },
+  responses: { 201: { description: '생성된 레시피' }, 401: { description: '인증 필요' } },
+})
+
+recipesRouter.openAPIRegistry.registerPath({
+  method: 'delete',
+  path: '/{storeId}/recipes/{recipeId}',
+  tags: ['Recipes'],
+  summary: '레시피 삭제',
+  security: bearerSecurity,
+  parameters: [storeIdParam, { name: 'recipeId', in: 'path', required: true, schema: { type: 'string' as const, format: 'uuid' } }],
+  responses: { 200: { description: '삭제 완료' }, 401: { description: '인증 필요' } },
+})
+
 export default recipesRouter
+
+

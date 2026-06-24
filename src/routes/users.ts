@@ -1,4 +1,4 @@
-import { Hono } from 'hono'
+﻿import { OpenAPIHono } from '@hono/zod-openapi'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import { db } from '../db/index.js'
@@ -7,7 +7,7 @@ import type { AppEnv } from '../types/index.js'
 import { authMiddleware } from '../middleware/auth.js'
 import { eq } from 'drizzle-orm'
 
-const usersRouter = new Hono<AppEnv>()
+const usersRouter = new OpenAPIHono<AppEnv>()
 
 usersRouter.use('*', authMiddleware)
 
@@ -80,6 +80,55 @@ usersRouter.delete('/me', async (c) => {
   await db.delete(users).where(eq(users.id, userId))
 
   return c.json({ success: true, data: null })
+})
+
+// OpenAPI registrations
+const bearerSecurity = [{ bearerAuth: [] }]
+
+usersRouter.openAPIRegistry.registerPath({
+  method: 'get',
+  path: '/me',
+  tags: ['Users'],
+  summary: '내 계정 정보 조회',
+  security: bearerSecurity,
+  responses: { 200: { description: '계정 정보 (id, name, email, profileImage)' }, 401: { description: '인증 필요' }, 404: { description: '사용자 없음' } },
+})
+
+usersRouter.openAPIRegistry.registerPath({
+  method: 'get',
+  path: '/me/store',
+  tags: ['Users'],
+  summary: '내 가게 정보 조회 (단일)',
+  security: bearerSecurity,
+  responses: { 200: { description: '가게 정보 또는 null' }, 401: { description: '인증 필요' } },
+})
+
+usersRouter.openAPIRegistry.registerPath({
+  method: 'get',
+  path: '/me/stores',
+  tags: ['Users'],
+  summary: '내 가게 목록 조회',
+  security: bearerSecurity,
+  responses: { 200: { description: '참여한 가게 목록 (storeId, storeName, role, themeColor)' }, 401: { description: '인증 필요' } },
+})
+
+usersRouter.openAPIRegistry.registerPath({
+  method: 'patch',
+  path: '/me',
+  tags: ['Users'],
+  summary: '계정 정보 수정',
+  security: bearerSecurity,
+  requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', required: ['name'], properties: { name: { type: 'string', minLength: 1 } } } } } },
+  responses: { 200: { description: '수정된 계정 정보' }, 401: { description: '인증 필요' } },
+})
+
+usersRouter.openAPIRegistry.registerPath({
+  method: 'delete',
+  path: '/me',
+  tags: ['Users'],
+  summary: '회원 탈퇴 (소유 가게 모두 삭제)',
+  security: bearerSecurity,
+  responses: { 200: { description: '탈퇴 완료' }, 401: { description: '인증 필요' } },
 })
 
 export default usersRouter

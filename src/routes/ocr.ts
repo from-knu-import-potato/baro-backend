@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+﻿import { OpenAPIHono } from "@hono/zod-openapi";
 import { GoogleGenAI } from "@google/genai";
 import { eq, and } from "drizzle-orm";
 import type { AppEnv } from "../types/index.js";
@@ -6,7 +6,7 @@ import { authMiddleware } from "../middleware/auth.js";
 import { db } from "../db/index.js";
 import { ingredients } from "../db/schema.js";
 
-const ocrRouter = new Hono<AppEnv>();
+const ocrRouter = new OpenAPIHono<AppEnv>();
 
 const genai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
 
@@ -253,4 +253,36 @@ ${rawText}`;
   return c.json({ success: true, data: { metadata, items, rawText } });
 });
 
+// OpenAPI registrations
+ocrRouter.openAPIRegistry.registerPath({
+  method: 'post',
+  path: '/{storeId}/ocr/upload',
+  tags: ['OCR'],
+  summary: '거래명세서 OCR 업로드',
+  description: '거래명세서 이미지를 업로드하면 Clova OCR + Gemini AI로 파싱하여 식자재 입고 정보를 반환합니다.',
+  security: [{ bearerAuth: [] }],
+  parameters: [{ name: 'storeId', in: 'path', required: true, schema: { type: 'string' as const, format: 'uuid' } }],
+  requestBody: {
+    required: true,
+    content: {
+      'multipart/form-data': {
+        schema: {
+          type: 'object',
+          required: ['file'],
+          properties: { file: { type: 'string', format: 'binary', description: '거래명세서 이미지 파일' } },
+        },
+      },
+    },
+  },
+  responses: {
+    200: { description: 'OCR 파싱 결과 (metadata, items, rawText)' },
+    400: { description: '파일 없음' },
+    422: { description: '텍스트 인식 불가' },
+    500: { description: 'OCR 또는 AI 파싱 실패' },
+    503: { description: 'AI 서비스 일시 불가' },
+  },
+})
+
 export default ocrRouter;
+
+

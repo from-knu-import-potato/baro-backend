@@ -1,4 +1,4 @@
-import { Hono } from 'hono'
+﻿import { OpenAPIHono } from '@hono/zod-openapi'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import { db } from '../db/index.js'
@@ -8,7 +8,7 @@ import { authMiddleware } from '../middleware/auth.js'
 import { eq, and, inArray } from 'drizzle-orm'
 import { addClient, removeClient, broadcast } from '../lib/sse.js'
 
-const ordersRouter = new Hono<AppEnv>()
+const ordersRouter = new OpenAPIHono<AppEnv>()
 
 const createOrderSchema = z.object({
   tableNumber: z.number().int().min(1),
@@ -121,4 +121,52 @@ ordersRouter.get('/:storeId/orders/stream', authMiddleware, (c) => {
   )
 })
 
+// OpenAPI registrations
+const storeIdParam = { name: 'storeId', in: 'path' as const, required: true, schema: { type: 'string' as const, format: 'uuid' } }
+const bearerSecurity = [{ bearerAuth: [] }]
+
+ordersRouter.openAPIRegistry.registerPath({
+  method: 'get',
+  path: '/{storeId}/orders',
+  tags: ['Orders'],
+  summary: '주문 목록 조회 (사장님)',
+  security: bearerSecurity,
+  parameters: [storeIdParam],
+  responses: { 200: { description: '주문 목록 (items, menu 포함)' }, 401: { description: '인증 필요' } },
+})
+
+ordersRouter.openAPIRegistry.registerPath({
+  method: 'post',
+  path: '/{storeId}/orders',
+  tags: ['Orders'],
+  summary: '주문 생성 (손님, 인증 불필요)',
+  parameters: [storeIdParam],
+  requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', required: ['tableNumber', 'items'], properties: { tableNumber: { type: 'integer', minimum: 1 }, items: { type: 'array', items: { type: 'object', required: ['menuId', 'quantity'], properties: { menuId: { type: 'string', format: 'uuid' }, quantity: { type: 'integer', minimum: 1 } } }, minItems: 1 }, customerNote: { type: 'string', maxLength: 200 } } } } } },
+  responses: { 201: { description: '생성된 주문 (SSE 이벤트 발생)' }, 400: { description: '유효하지 않은 메뉴' } },
+})
+
+ordersRouter.openAPIRegistry.registerPath({
+  method: 'patch',
+  path: '/{storeId}/orders/{orderId}/status',
+  tags: ['Orders'],
+  summary: '주문 상태 변경 (사장님)',
+  security: bearerSecurity,
+  parameters: [storeIdParam, { name: 'orderId', in: 'path', required: true, schema: { type: 'string' as const, format: 'uuid' } }],
+  requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', required: ['status'], properties: { status: { type: 'string', enum: ['preparing', 'completed', 'cancelled'] } } } } } },
+  responses: { 200: { description: '업데이트된 주문 상태 (SSE 이벤트 발생)' }, 401: { description: '인증 필요' }, 404: { description: '주문 없음' } },
+})
+
+ordersRouter.openAPIRegistry.registerPath({
+  method: 'get',
+  path: '/{storeId}/orders/stream',
+  tags: ['Orders'],
+  summary: 'SSE 실시간 주문 스트림 (사장님)',
+  description: 'Server-Sent Events 스트림. 새 주문 및 상태 변경 시 실시간 이벤트 수신.',
+  security: bearerSecurity,
+  parameters: [storeIdParam],
+  responses: { 200: { description: 'SSE 스트림 (text/event-stream)', content: { 'text/event-stream': { schema: { type: 'string' as const } } } } },
+})
+
 export default ordersRouter
+
+

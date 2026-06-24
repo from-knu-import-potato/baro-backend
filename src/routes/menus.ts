@@ -1,4 +1,4 @@
-import { Hono } from 'hono'
+﻿import { OpenAPIHono } from '@hono/zod-openapi'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import { GoogleGenAI } from '@google/genai'
@@ -17,7 +17,7 @@ type MenuOcrItem = {
   description: string | null
 }
 
-const menusRouter = new Hono<AppEnv>()
+const menusRouter = new OpenAPIHono<AppEnv>()
 
 const menuSchema = z.object({
   name: z.string().min(1),
@@ -163,4 +163,73 @@ menusRouter.delete('/:storeId/menus/:menuId', authMiddleware, async (c) => {
   return c.json({ success: true, data: null })
 })
 
+// OpenAPI registrations
+const storeIdParam = { name: 'storeId', in: 'path' as const, required: true, schema: { type: 'string' as const, format: 'uuid' } }
+const bearerSecurity = [{ bearerAuth: [] }]
+
+menusRouter.openAPIRegistry.registerPath({
+  method: 'post',
+  path: '/{storeId}/menus/upload',
+  tags: ['Menus'],
+  summary: '메뉴 이미지 업로드',
+  security: bearerSecurity,
+  parameters: [storeIdParam],
+  requestBody: { required: true, content: { 'multipart/form-data': { schema: { type: 'object', required: ['file'], properties: { file: { type: 'string', format: 'binary' } } } } } },
+  responses: { 201: { description: '업로드된 이미지 URL 반환' }, 400: { description: '파일 없음' }, 500: { description: '업로드 실패' } },
+})
+
+menusRouter.openAPIRegistry.registerPath({
+  method: 'post',
+  path: '/{storeId}/menus/ocr-scan',
+  tags: ['Menus'],
+  summary: '메뉴판 OCR 스캔',
+  security: bearerSecurity,
+  parameters: [storeIdParam],
+  requestBody: { required: true, content: { 'multipart/form-data': { schema: { type: 'object', required: ['file'], properties: { file: { type: 'string', format: 'binary' } } } } } },
+  responses: { 200: { description: 'OCR 인식 결과 반환' }, 400: { description: '파일 없음' }, 422: { description: '텍스트 인식 불가' }, 503: { description: 'AI 서비스 불가' } },
+})
+
+menusRouter.openAPIRegistry.registerPath({
+  method: 'get',
+  path: '/{storeId}/menus',
+  tags: ['Menus'],
+  summary: '메뉴 목록 조회',
+  parameters: [storeIdParam],
+  responses: { 200: { description: '메뉴 목록' } },
+})
+
+menusRouter.openAPIRegistry.registerPath({
+  method: 'post',
+  path: '/{storeId}/menus',
+  tags: ['Menus'],
+  summary: '메뉴 생성',
+  security: bearerSecurity,
+  parameters: [storeIdParam],
+  requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', required: ['name', 'price'], properties: { name: { type: 'string' }, price: { type: 'integer', minimum: 0 }, description: { type: 'string', nullable: true }, imageUrl: { type: 'string', nullable: true }, isAvailable: { type: 'boolean' }, categoryId: { type: 'string', format: 'uuid', nullable: true } } } } } },
+  responses: { 201: { description: '생성된 메뉴' }, 401: { description: '인증 필요' } },
+})
+
+menusRouter.openAPIRegistry.registerPath({
+  method: 'patch',
+  path: '/{storeId}/menus/{menuId}',
+  tags: ['Menus'],
+  summary: '메뉴 수정',
+  security: bearerSecurity,
+  parameters: [storeIdParam, { name: 'menuId', in: 'path', required: true, schema: { type: 'string' as const, format: 'uuid' } }],
+  requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', description: '수정할 메뉴 정보 (partial)' } } } },
+  responses: { 200: { description: '수정된 메뉴' }, 401: { description: '인증 필요' }, 404: { description: '메뉴 없음' } },
+})
+
+menusRouter.openAPIRegistry.registerPath({
+  method: 'delete',
+  path: '/{storeId}/menus/{menuId}',
+  tags: ['Menus'],
+  summary: '메뉴 삭제',
+  security: bearerSecurity,
+  parameters: [storeIdParam, { name: 'menuId', in: 'path', required: true, schema: { type: 'string' as const, format: 'uuid' } }],
+  responses: { 200: { description: '삭제 완료' }, 401: { description: '인증 필요' } },
+})
+
 export default menusRouter
+
+
