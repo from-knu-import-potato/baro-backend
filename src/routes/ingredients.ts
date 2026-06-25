@@ -213,16 +213,16 @@ ingredientsRouter.post('/:storeId/ingredients/inbound', authMiddleware, zValidat
   const { metadata, items } = c.req.valid('json')
 
   // 해당 가게 식자재인지 검증
-  const ingredientIds = items.map((i) => i.ingredientId)
+  const uniqueIngredientIds = [...new Set(items.map((i) => i.ingredientId))]
   const owned = await db
     .select({ id: ingredients.id })
     .from(ingredients)
     .where(and(
       eq(ingredients.storeId, storeId),
-      inArray(ingredients.id, ingredientIds),
+      inArray(ingredients.id, uniqueIngredientIds),
     ))
 
-  if (owned.length !== ingredientIds.length) {
+  if (owned.length !== uniqueIngredientIds.length) {
     return c.json({ success: false, error: { code: 'BAD_REQUEST', message: '유효하지 않은 식자재가 포함되어 있습니다.' } }, 400)
   }
 
@@ -281,7 +281,7 @@ const unitConversionUpsertSchema = z.array(z.object({
   ingredientId: z.string().uuid(),
   purchaseUnit: z.string().min(1),
   baseUnit: z.enum(['g', 'ml', '개']),
-  factor: z.number().positive(),
+  factor: z.coerce.number().positive(),
 })).min(1)
 
 // 가게의 구매 단위 변환 factor 전체 조회
@@ -335,6 +335,23 @@ ingredientsRouter.put('/:storeId/unit-conversions', authMiddleware, zValidator('
         updatedAt: now,
       },
     })
+
+  return c.json({ success: true, data: null })
+})
+
+// 구매 단위 변환 삭제
+ingredientsRouter.delete('/:storeId/unit-conversions/:id', authMiddleware, async (c) => {
+  const storeId = c.req.param('storeId')
+  const id = c.req.param('id')
+
+  const [deleted] = await db
+    .delete(ingredientUnitConversions)
+    .where(and(eq(ingredientUnitConversions.id, id), eq(ingredientUnitConversions.storeId, storeId)))
+    .returning({ id: ingredientUnitConversions.id })
+
+  if (!deleted) {
+    return c.json({ success: false, error: { code: 'NOT_FOUND', message: '해당 단위 변환을 찾을 수 없습니다.' } }, 404)
+  }
 
   return c.json({ success: true, data: null })
 })
@@ -405,6 +422,16 @@ ingredientsRouter.openAPIRegistry.registerPath({
   security: bearerSecurity,
   parameters: [storeIdParam],
   responses: { 200: { description: '단위 변환 목록' }, 401: { description: '인증 필요' } },
+})
+
+ingredientsRouter.openAPIRegistry.registerPath({
+  method: 'delete',
+  path: '/{storeId}/unit-conversions/{id}',
+  tags: ['Ingredients'],
+  summary: '구매 단위 변환 삭제',
+  security: bearerSecurity,
+  parameters: [storeIdParam, { name: 'id', in: 'path' as const, required: true, schema: { type: 'string' as const, format: 'uuid' } }],
+  responses: { 200: { description: '삭제 완료' }, 401: { description: '인증 필요' }, 404: { description: '단위 변환 없음' } },
 })
 
 ingredientsRouter.openAPIRegistry.registerPath({
