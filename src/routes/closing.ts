@@ -279,7 +279,7 @@ const closingConfirmSchema = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   inventoryDeductions: z.array(z.object({
     ingredientId: z.string().uuid(),
-    actualUsage: z.number().min(0),
+    remainingStock: z.number().min(0),
   })),
 })
 
@@ -359,20 +359,22 @@ closingRouter.post('/:storeId/closing', authMiddleware, validate('json', closing
       .where(eq(ingredients.id, deduction.ingredientId))
 
     const orderDeductedAmount = orderDeductedMap.get(deduction.ingredientId) ?? 0
-    const adjustmentAmount = deduction.actualUsage - orderDeductedAmount
-    const newStock = Number(ingr.currentStock) - adjustmentAmount
+    const currentStock = Number(ingr.currentStock)
+    const openingStock = currentStock + orderDeductedAmount
+    const actualUsage = openingStock - deduction.remainingStock
+    const adjustmentAmount = actualUsage - orderDeductedAmount  // = currentStock - remainingStock
 
     await db.update(ingredients)
-      .set({ currentStock: String(newStock), updatedAt: new Date() })
+      .set({ currentStock: String(deduction.remainingStock), updatedAt: new Date() })
       .where(eq(ingredients.id, deduction.ingredientId))
 
     await db.insert(closingDeductions).values({
       closingId: closing.id,
       ingredientId: deduction.ingredientId,
       orderDeductedAmount: String(orderDeductedAmount),
-      actualUsage: String(deduction.actualUsage),
+      actualUsage: String(actualUsage),
       adjustmentAmount: String(adjustmentAmount),
-      remainingStock: String(newStock),
+      remainingStock: String(deduction.remainingStock),
     })
 
     result.push({
@@ -380,9 +382,9 @@ closingRouter.post('/:storeId/closing', authMiddleware, validate('json', closing
       ingredientName: ingr.name,
       unit: ingr.unit,
       orderDeductedAmount,
-      actualUsage: deduction.actualUsage,
+      actualUsage,
       adjustmentAmount,
-      remainingStock: newStock,
+      remainingStock: deduction.remainingStock,
     })
   }
 
@@ -467,10 +469,10 @@ closingRouter.openAPIRegistry.registerPath({
   path: '/{storeId}/closing',
   tags: ['Closing'],
   summary: '마감 확정 (보정값 적용)',
-  description: '사장님이 입력한 실제 사용량과 오늘 주문 차감량의 차이(adjustmentAmount)를 재고에 반영합니다.',
+  description: '사장님이 직접 확인한 잔여 재고(remainingStock)를 입력하면, 주문 차감분과의 차이(adjustmentAmount)를 계산해 재고를 remainingStock으로 맞춥니다.',
   security: bearerSecurity,
   parameters: [storeIdParam],
-  requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', required: ['inventoryDeductions'], properties: { date: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$', description: '소급 마감 날짜 (생략 시 오늘)' }, inventoryDeductions: { type: 'array', items: { type: 'object', required: ['ingredientId', 'actualUsage'], properties: { ingredientId: { type: 'string', format: 'uuid' }, actualUsage: { type: 'number', minimum: 0 } } } } } } } } },
+  requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', required: ['inventoryDeductions'], properties: { date: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$', description: '소급 마감 날짜 (생략 시 오늘)' }, inventoryDeductions: { type: 'array', items: { type: 'object', required: ['ingredientId', 'remainingStock'], properties: { ingredientId: { type: 'string', format: 'uuid' }, remainingStock: { type: 'number', minimum: 0, description: '사장님이 직접 확인한 현재 잔여 재고량' } } } } } } } } },
   responses: { 201: { description: '마감 완료, closingId 반환' }, 400: { description: '유효하지 않은 날짜 또는 식자재' }, 401: { description: '인증 필요' }, 409: { description: '이미 마감된 날짜' } },
 })
 
