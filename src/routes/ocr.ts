@@ -105,7 +105,7 @@ ocrRouter.post("/:storeId/ocr/upload", authMiddleware, async (c) => {
 
   const ingredientListText =
     storeIngredients.length > 0
-      ? `\n[이 가게에 등록된 실제 식자재 목록]\n${storeIngredients.map((i) => i.name).join(", ")}\n위 목록과 동일하거나 OCR 오인식으로 유사하게 읽힌 항목은 반드시 목록의 정확한 이름으로 교정할 것.\n`
+      ? `\n[이 가게에 등록된 식자재 목록 — ingredientId 매핑 참고용]\n${storeIngredients.map((i) => i.name).join(", ")}\n⚠️ 이 목록은 name 필드 교정에 사용하지 말 것. name은 반드시 명세서 원문 그대로 반환. 단, OCR이 같은 단어를 오자로 읽은 것이 명백한 경우(예: "생크릠" → "생크림")에만 교정 허용. "생크림"과 "휘핑크림"처럼 다른 식자재는 절대 교체 금지.\n`
       : "";
 
   const prompt = `당신은 한국 카페·식당 식자재 전문가입니다. 다음은 한국 거래명세서에서 OCR로 추출한 텍스트입니다.
