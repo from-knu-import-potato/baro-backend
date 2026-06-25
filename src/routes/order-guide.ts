@@ -186,7 +186,7 @@ orderGuideRouter.post('/:storeId/order-guide/generate', authMiddleware, async (c
   const deductionRows = await db
     .select({
       ingredientId: closingDeductions.ingredientId,
-      usedAmount: closingDeductions.usedAmount,
+      actualUsage: closingDeductions.actualUsage,
       date: closings.date,
     })
     .from(closingDeductions)
@@ -196,7 +196,7 @@ orderGuideRouter.post('/:storeId/order-guide/generate', authMiddleware, async (c
   const deductionMap = new Map<string, { totalUsed: number; days: Set<string> }>()
   for (const row of deductionRows) {
     const entry = deductionMap.get(row.ingredientId) ?? { totalUsed: 0, days: new Set<string>() }
-    entry.totalUsed += Number(row.usedAmount)
+    entry.totalUsed += Number(row.actualUsage)
     entry.days.add(row.date)
     deductionMap.set(row.ingredientId, entry)
   }
@@ -206,7 +206,7 @@ orderGuideRouter.post('/:storeId/order-guide/generate', authMiddleware, async (c
   const recentDeductionRows = await db
     .select({
       ingredientId: closingDeductions.ingredientId,
-      usedAmount: closingDeductions.usedAmount,
+      actualUsage: closingDeductions.actualUsage,
       date: closings.date,
     })
     .from(closingDeductions)
@@ -216,7 +216,7 @@ orderGuideRouter.post('/:storeId/order-guide/generate', authMiddleware, async (c
   const recentDeductionMap = new Map<string, { totalUsed: number; days: Set<string> }>()
   for (const row of recentDeductionRows) {
     const entry = recentDeductionMap.get(row.ingredientId) ?? { totalUsed: 0, days: new Set<string>() }
-    entry.totalUsed += Number(row.usedAmount)
+    entry.totalUsed += Number(row.actualUsage)
     entry.days.add(row.date)
     recentDeductionMap.set(row.ingredientId, entry)
   }

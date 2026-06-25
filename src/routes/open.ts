@@ -1,5 +1,5 @@
 ﻿import { OpenAPIHono } from '@hono/zod-openapi'
-import { zValidator } from '@hono/zod-validator'
+import { validate } from '../lib/validator.js'
 import { z } from 'zod'
 import { db } from '../db/index.js'
 import { storeOpens, closings, operatingHours } from '../db/schema.js'
@@ -15,7 +15,7 @@ const openSchema = z.object({
 })
 
 // 개점 처리 (멱등성: 같은 businessDate 중복 호출 시 기존 레코드 반환)
-openRouter.post('/:storeId/open', authMiddleware, zValidator('json', openSchema), async (c) => {
+openRouter.post('/:storeId/open', authMiddleware, validate('json', openSchema), async (c) => {
   const storeId = c.req.param('storeId')
   const { businessDate } = c.req.valid('json')
 

@@ -1,5 +1,5 @@
 ﻿import { OpenAPIHono } from '@hono/zod-openapi'
-import { zValidator } from '@hono/zod-validator'
+import { validate } from '../lib/validator.js'
 import { z } from 'zod'
 import { db } from '../db/index.js'
 import { stores } from '../db/schema.js'
@@ -40,7 +40,7 @@ themeRouter.get('/:storeId/theme', async (c) => {
   return c.json({ success: true, data: toThemeResponse(store) })
 })
 
-themeRouter.patch('/:storeId/theme', authMiddleware, zValidator('json', themeSchema), async (c) => {
+themeRouter.patch('/:storeId/theme', authMiddleware, validate('json', themeSchema), async (c) => {
   const storeId = c.req.param('storeId')
   const body = c.req.valid('json')
 

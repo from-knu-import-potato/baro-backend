@@ -1,5 +1,5 @@
 ﻿import { OpenAPIHono } from '@hono/zod-openapi'
-import { zValidator } from '@hono/zod-validator'
+import { validate } from '../lib/validator.js'
 import { z } from 'zod'
 import { db } from '../db/index.js'
 import { ingredients, inboundRecords, inboundItems, closingDeductions, recipes, menus, stores, ingredientUnitConversions } from '../db/schema.js'
@@ -82,7 +82,7 @@ ingredientsRouter.get('/:storeId/ingredients', authMiddleware, async (c) => {
   return c.json({ success: true, data: list })
 })
 
-ingredientsRouter.post('/:storeId/ingredients', authMiddleware, zValidator('json', ingredientSchema), async (c) => {
+ingredientsRouter.post('/:storeId/ingredients', authMiddleware, validate('json', ingredientSchema), async (c) => {
   const storeId = c.req.param('storeId')
   const body = c.req.valid('json')
 
@@ -111,7 +111,7 @@ ingredientsRouter.post('/:storeId/ingredients', authMiddleware, zValidator('json
   return c.json({ success: true, data: created }, 201)
 })
 
-ingredientsRouter.patch('/:storeId/ingredients/:id', authMiddleware, zValidator('json', ingredientSchema.partial()), async (c) => {
+ingredientsRouter.patch('/:storeId/ingredients/:id', authMiddleware, validate('json', ingredientSchema.partial()), async (c) => {
   const { storeId, id } = c.req.param()
   const body = c.req.valid('json')
 
@@ -208,7 +208,7 @@ ingredientsRouter.delete('/:storeId/ingredients/:id', authMiddleware, async (c) 
 })
 
 // 입고 처리 (OCR 확정 후 호출)
-ingredientsRouter.post('/:storeId/ingredients/inbound', authMiddleware, zValidator('json', inboundSchema), async (c) => {
+ingredientsRouter.post('/:storeId/ingredients/inbound', authMiddleware, validate('json', inboundSchema), async (c) => {
   const storeId = c.req.param('storeId')
   const { metadata, items } = c.req.valid('json')
 
@@ -303,7 +303,7 @@ ingredientsRouter.get('/:storeId/unit-conversions', authMiddleware, async (c) =>
 })
 
 // 구매 단위 변환 factor 저장/갱신 (bulk upsert)
-ingredientsRouter.put('/:storeId/unit-conversions', authMiddleware, zValidator('json', unitConversionUpsertSchema), async (c) => {
+ingredientsRouter.put('/:storeId/unit-conversions', authMiddleware, validate('json', unitConversionUpsertSchema), async (c) => {
   const storeId = c.req.param('storeId')
   const items = c.req.valid('json')
 

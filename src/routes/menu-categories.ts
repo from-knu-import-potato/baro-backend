@@ -1,5 +1,5 @@
 ﻿import { OpenAPIHono } from '@hono/zod-openapi'
-import { zValidator } from '@hono/zod-validator'
+import { validate } from '../lib/validator.js'
 import { z } from 'zod'
 import { db } from '../db/index.js'
 import { menuCategories } from '../db/schema.js'
@@ -28,7 +28,7 @@ menuCategoriesRouter.get('/:storeId/menu-categories', async (c) => {
 menuCategoriesRouter.post(
   '/:storeId/menu-categories',
   authMiddleware,
-  zValidator('json', z.object({ name: z.string().min(1) })),
+  validate('json', z.object({ name: z.string().min(1) })),
   async (c) => {
     const storeId = c.req.param('storeId')
     const { name } = c.req.valid('json')
@@ -54,7 +54,7 @@ menuCategoriesRouter.post(
 menuCategoriesRouter.patch(
   '/:storeId/menu-categories/reorder',
   authMiddleware,
-  zValidator('json', z.object({ categoryIds: z.array(z.string().uuid()).min(1) })),
+  validate('json', z.object({ categoryIds: z.array(z.string().uuid()).min(1) })),
   async (c) => {
     const storeId = c.req.param('storeId')
     const { categoryIds } = c.req.valid('json')
@@ -75,7 +75,7 @@ menuCategoriesRouter.patch(
 menuCategoriesRouter.patch(
   '/:storeId/menu-categories/:categoryId',
   authMiddleware,
-  zValidator('json', z.object({ name: z.string().min(1) })),
+  validate('json', z.object({ name: z.string().min(1) })),
   async (c) => {
     const { storeId, categoryId } = c.req.param()
     const { name } = c.req.valid('json')
