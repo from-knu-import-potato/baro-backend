@@ -125,7 +125,7 @@ ocrRouter.post("/:storeId/ocr/upload", authMiddleware, async (c) => {
 ${ingredientListText}
 [items 배열 규칙]
 1. name: 괄호·규격(용량·중량·개수 표기 등) 제거하고 순수 품목명만. 예) "바게트빵(185G*5EA)" → "바게트빵", "콜라355ml" → "콜라". 식자재답지 않은 단어는 OCR 오인식으로 판단해 올바른 식자재명으로 교정.
-2. purchaseUnit: 명세서 단위 열의 원본 단위 문자열을 대문자로 그대로 반환. 없으면 "EA".
+2. purchaseUnit: 명세서 단위 열에 적힌 문자열을 절대 해석·변환·추측하지 말고 원문 그대로 대문자로 반환. 예) 명세서에 "K"면 반드시 "K", "단"이면 "단", "BOX"면 "BOX". 없으면 "EA".
 3. purchaseAmount: 명세서 수량 열의 숫자 그대로. 상품명 내 용량(예: "콜라355ml"의 "355")은 절대 사용 금지.
 4. amount / unit: purchaseUnit에 따라 아래 규칙 적용.
    [자동 변환 가능 — amount·unit 값 있음]
