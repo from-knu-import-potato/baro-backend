@@ -1,11 +1,11 @@
-﻿import { OpenAPIHono } from '@hono/zod-openapi'
-import { zValidator } from '@hono/zod-validator'
+import { OpenAPIHono } from '@hono/zod-openapi'
+import { validate } from '../lib/validator.js'
 import { z } from 'zod'
 import { db } from '../db/index.js'
 import { orders, orderItems, menus, recipes, ingredients, closings, closingDeductions, operatingHours } from '../db/schema.js'
 import type { AppEnv } from '../types/index.js'
 import { authMiddleware } from '../middleware/auth.js'
-import { eq, and, inArray, gte, lt, sql, desc } from 'drizzle-orm'
+import { eq, and, inArray, gte, lt, sql, desc, or } from 'drizzle-orm'
 import { toKSTDateStr, getKSTDateRange, getBusinessDateStr, isValidClosingDate } from '../lib/kst.js'
 
 const closingRouter = new OpenAPIHono<AppEnv>()
@@ -20,7 +20,43 @@ async function getTodayOpenTime(storeId: string): Promise<string | null> {
   return row?.isClosed ? null : (row?.openTime ?? null)
 }
 
-// 마감 미리보기 조회
+// 특정 날짜의 수락된 주문(preparing + completed) 기반 식자재별 차감량 계산
+async function calcOrderDeductedMap(storeId: string, dateStr: string): Promise<Map<string, number>> {
+  const { start, end } = getKSTDateRange(dateStr)
+
+  const dayOrders = await db.query.orders.findMany({
+    where: and(
+      eq(orders.storeId, storeId),
+      or(eq(orders.status, 'preparing'), eq(orders.status, 'completed')),
+      gte(orders.createdAt, start),
+      lt(orders.createdAt, end),
+    ),
+    with: { items: true },
+  })
+
+  const allMenuIds = [...new Set(dayOrders.flatMap((o) => o.items.map((i) => i.menuId)))]
+  const deductedMap = new Map<string, number>()
+
+  if (allMenuIds.length === 0) return deductedMap
+
+  const recipeList = await db
+    .select({ menuId: recipes.menuId, ingredientId: recipes.ingredientId, amount: recipes.amount })
+    .from(recipes)
+    .where(inArray(recipes.menuId, allMenuIds))
+
+  for (const order of dayOrders) {
+    for (const item of order.items) {
+      for (const recipe of recipeList.filter((r) => r.menuId === item.menuId)) {
+        const amount = Number(recipe.amount) * item.quantity
+        deductedMap.set(recipe.ingredientId, (deductedMap.get(recipe.ingredientId) ?? 0) + amount)
+      }
+    }
+  }
+
+  return deductedMap
+}
+
+// 마감 미리보기 조회 (#120)
 closingRouter.get('/:storeId/closing/preview', authMiddleware, async (c) => {
   const storeId = c.req.param('storeId')
   const dateParam = c.req.query('date')
@@ -50,7 +86,8 @@ closingRouter.get('/:storeId/closing/preview', authMiddleware, async (c) => {
   const isClosed = !!existingClosing
   const closingId = existingClosing?.id ?? null
 
-  const dayOrders = await db.query.orders.findMany({
+  // 완료된 주문으로 매출 계산
+  const completedOrders = await db.query.orders.findMany({
     where: and(
       eq(orders.storeId, storeId),
       eq(orders.status, 'completed'),
@@ -60,18 +97,12 @@ closingRouter.get('/:storeId/closing/preview', authMiddleware, async (c) => {
     with: { items: true },
   })
 
-  if (dayOrders.length === 0) {
-    return c.json({
-      success: true,
-      data: { date: dateStr, isClosed, closingId, totalRevenue: 0, soldMenus: [], inventoryDeductions: [] },
-    })
-  }
+  const totalRevenue = completedOrders.reduce((sum, o) => sum + o.totalPrice, 0)
 
-  const totalRevenue = dayOrders.reduce((sum, o) => sum + o.totalPrice, 0)
-
+  // 판매 메뉴 집계 (completed 기준)
   const menuQuantityMap = new Map<string, number>()
   const menuPriceMap = new Map<string, number>()
-  for (const order of dayOrders) {
+  for (const order of completedOrders) {
     for (const item of order.items) {
       menuQuantityMap.set(item.menuId, (menuQuantityMap.get(item.menuId) ?? 0) + item.quantity)
       menuPriceMap.set(item.menuId, item.unitPrice)
@@ -79,74 +110,62 @@ closingRouter.get('/:storeId/closing/preview', authMiddleware, async (c) => {
   }
 
   const menuIds = [...menuQuantityMap.keys()]
+  let soldMenus: { menuId: string; menuName: string; quantity: number; unitPrice: number; subtotal: number }[] = []
 
-  const menuList = await db
-    .select({ id: menus.id, name: menus.name })
-    .from(menus)
-    .where(inArray(menus.id, menuIds))
+  if (menuIds.length > 0) {
+    const menuList = await db
+      .select({ id: menus.id, name: menus.name })
+      .from(menus)
+      .where(inArray(menus.id, menuIds))
 
-  const menuNameMap = new Map(menuList.map((m) => [m.id, m.name]))
-
-  const soldMenus = menuIds.map((menuId) => {
-    const quantity = menuQuantityMap.get(menuId)!
-    const unitPrice = menuPriceMap.get(menuId)!
-    return {
-      menuId,
-      menuName: menuNameMap.get(menuId) ?? '',
-      quantity,
-      unitPrice,
-      subtotal: quantity * unitPrice,
-    }
-  })
-
-  const recipeList = await db
-    .select({
-      menuId: recipes.menuId,
-      ingredientId: recipes.ingredientId,
-      amount: recipes.amount,
-      ingredientName: ingredients.name,
-      unit: ingredients.unit,
-      currentStock: ingredients.currentStock,
+    const menuNameMap = new Map(menuList.map((m) => [m.id, m.name]))
+    soldMenus = menuIds.map((menuId) => {
+      const quantity = menuQuantityMap.get(menuId)!
+      const unitPrice = menuPriceMap.get(menuId)!
+      return { menuId, menuName: menuNameMap.get(menuId) ?? '', quantity, unitPrice, subtotal: quantity * unitPrice }
     })
-    .from(recipes)
-    .innerJoin(ingredients, eq(recipes.ingredientId, ingredients.id))
-    .where(inArray(recipes.menuId, menuIds))
+  }
 
-  const ingredientMap = new Map<string, {
+  // 수락된 주문(preparing + completed) 기반 식자재별 차감량 계산
+  const orderDeductedMap = await calcOrderDeductedMap(storeId, dateStr)
+
+  // 차감된 식자재 목록 구성
+  const deductedIngredientIds = [...orderDeductedMap.keys()]
+  let inventoryDeductions: {
     ingredientId: string
     ingredientName: string
     unit: string
-    theoreticalUsage: number
+    openingStock: number
+    orderDeductedAmount: number
     currentStock: number
-  }>()
+    isNegative: boolean
+  }[] = []
 
-  for (const recipe of recipeList) {
-    const qty = menuQuantityMap.get(recipe.menuId) ?? 0
-    const usage = Number(recipe.amount) * qty
-    const existing = ingredientMap.get(recipe.ingredientId)
-    if (existing) {
-      existing.theoreticalUsage += usage
-    } else {
-      ingredientMap.set(recipe.ingredientId, {
-        ingredientId: recipe.ingredientId,
-        ingredientName: recipe.ingredientName,
-        unit: recipe.unit,
-        theoreticalUsage: usage,
-        currentStock: Number(recipe.currentStock),
-      })
-    }
+  if (deductedIngredientIds.length > 0) {
+    const ingredientList = await db
+      .select({ id: ingredients.id, name: ingredients.name, unit: ingredients.unit, currentStock: ingredients.currentStock })
+      .from(ingredients)
+      .where(inArray(ingredients.id, deductedIngredientIds))
+
+    inventoryDeductions = ingredientList.map((ingr) => {
+      const orderDeductedAmount = orderDeductedMap.get(ingr.id) ?? 0
+      const currentStock = Number(ingr.currentStock)
+      const openingStock = currentStock + orderDeductedAmount
+      return {
+        ingredientId: ingr.id,
+        ingredientName: ingr.name,
+        unit: ingr.unit,
+        openingStock,
+        orderDeductedAmount,
+        currentStock,
+        isNegative: currentStock < 0,
+      }
+    })
   }
 
   return c.json({
     success: true,
-    data: {
-      date: dateStr,
-      isClosed,
-      closingId,
-      totalRevenue,
-      soldMenus,
-      inventoryDeductions: [...ingredientMap.values()],
-    },
+    data: { date: dateStr, isClosed, closingId, totalRevenue, soldMenus, inventoryDeductions },
   })
 })
 
@@ -187,7 +206,9 @@ closingRouter.get('/:storeId/closing/:closingId', authMiddleware, async (c) => {
       ingredientId: closingDeductions.ingredientId,
       ingredientName: ingredients.name,
       unit: ingredients.unit,
-      usedAmount: closingDeductions.usedAmount,
+      orderDeductedAmount: closingDeductions.orderDeductedAmount,
+      actualUsage: closingDeductions.actualUsage,
+      adjustmentAmount: closingDeductions.adjustmentAmount,
       remainingStock: closingDeductions.remainingStock,
     })
     .from(closingDeductions)
@@ -196,7 +217,7 @@ closingRouter.get('/:storeId/closing/:closingId', authMiddleware, async (c) => {
 
   const { start, end } = getKSTDateRange(closing.date)
 
-  const dayOrders = await db.query.orders.findMany({
+  const completedOrders = await db.query.orders.findMany({
     where: and(
       eq(orders.storeId, storeId),
       eq(orders.status, 'completed'),
@@ -208,7 +229,7 @@ closingRouter.get('/:storeId/closing/:closingId', authMiddleware, async (c) => {
 
   const menuQuantityMap = new Map<string, number>()
   const menuPriceMap = new Map<string, number>()
-  for (const order of dayOrders) {
+  for (const order of completedOrders) {
     for (const item of order.items) {
       menuQuantityMap.set(item.menuId, (menuQuantityMap.get(item.menuId) ?? 0) + item.quantity)
       menuPriceMap.set(item.menuId, item.unitPrice)
@@ -225,7 +246,6 @@ closingRouter.get('/:storeId/closing/:closingId', authMiddleware, async (c) => {
       .where(inArray(menus.id, menuIds))
 
     const menuNameMap = new Map(menuList.map((m) => [m.id, m.name]))
-
     soldMenus = menuIds.map((menuId) => {
       const quantity = menuQuantityMap.get(menuId)!
       const unitPrice = menuPriceMap.get(menuId)!
@@ -245,14 +265,16 @@ closingRouter.get('/:storeId/closing/:closingId', authMiddleware, async (c) => {
         ingredientId: d.ingredientId,
         ingredientName: d.ingredientName,
         unit: d.unit,
-        usedAmount: Number(d.usedAmount),
+        orderDeductedAmount: Number(d.orderDeductedAmount),
+        actualUsage: Number(d.actualUsage),
+        adjustmentAmount: Number(d.adjustmentAmount),
         remainingStock: Number(d.remainingStock),
       })),
     },
   })
 })
 
-// 마감 완료 처리
+// 마감 확정 처리 (#118)
 const closingConfirmSchema = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   inventoryDeductions: z.array(z.object({
@@ -261,7 +283,7 @@ const closingConfirmSchema = z.object({
   })),
 })
 
-closingRouter.post('/:storeId/closing', authMiddleware, zValidator('json', closingConfirmSchema), async (c) => {
+closingRouter.post('/:storeId/closing', authMiddleware, validate('json', closingConfirmSchema), async (c) => {
   const storeId = c.req.param('storeId')
   const { date: dateParam, inventoryDeductions } = c.req.valid('json')
 
@@ -301,6 +323,7 @@ closingRouter.post('/:storeId/closing', authMiddleware, zValidator('json', closi
     }, 400)
   }
 
+  // 오늘 매출 계산
   const { start, end } = getKSTDateRange(date)
   const [{ total }] = await db
     .select({ total: sql<string>`coalesce(sum(${orders.totalPrice}), 0)` })
@@ -314,13 +337,18 @@ closingRouter.post('/:storeId/closing', authMiddleware, zValidator('json', closi
 
   const totalRevenue = Number(total)
 
+  // 오늘 수락된 주문 기반 식자재별 차감량 계산
+  const orderDeductedMap = await calcOrderDeductedMap(storeId, date)
+
   const [closing] = await db.insert(closings).values({ storeId, date, totalRevenue }).returning()
 
-  const deductedIngredients: {
+  const result: {
     ingredientId: string
     ingredientName: string
     unit: string
-    usedAmount: number
+    orderDeductedAmount: number
+    actualUsage: number
+    adjustmentAmount: number
     remainingStock: number
   }[] = []
 
@@ -330,7 +358,9 @@ closingRouter.post('/:storeId/closing', authMiddleware, zValidator('json', closi
       .from(ingredients)
       .where(eq(ingredients.id, deduction.ingredientId))
 
-    const newStock = Math.max(0, Number(ingr.currentStock) - deduction.actualUsage)
+    const orderDeductedAmount = orderDeductedMap.get(deduction.ingredientId) ?? 0
+    const adjustmentAmount = deduction.actualUsage - orderDeductedAmount
+    const newStock = Number(ingr.currentStock) - adjustmentAmount
 
     await db.update(ingredients)
       .set({ currentStock: String(newStock), updatedAt: new Date() })
@@ -339,26 +369,30 @@ closingRouter.post('/:storeId/closing', authMiddleware, zValidator('json', closi
     await db.insert(closingDeductions).values({
       closingId: closing.id,
       ingredientId: deduction.ingredientId,
-      usedAmount: String(deduction.actualUsage),
+      orderDeductedAmount: String(orderDeductedAmount),
+      actualUsage: String(deduction.actualUsage),
+      adjustmentAmount: String(adjustmentAmount),
       remainingStock: String(newStock),
     })
 
-    deductedIngredients.push({
+    result.push({
       ingredientId: ingr.id,
       ingredientName: ingr.name,
       unit: ingr.unit,
-      usedAmount: deduction.actualUsage,
+      orderDeductedAmount,
+      actualUsage: deduction.actualUsage,
+      adjustmentAmount,
       remainingStock: newStock,
     })
   }
 
   return c.json({
     success: true,
-    data: { closingId: closing.id, date, totalRevenue, deductedIngredients },
+    data: { closingId: closing.id, date, totalRevenue, deductedIngredients: result },
   }, 201)
 })
 
-// 마감 취소
+// 마감 취소 (#119)
 closingRouter.delete('/:storeId/closing/:closingId', authMiddleware, async (c) => {
   const { storeId, closingId } = c.req.param()
 
@@ -372,15 +406,16 @@ closingRouter.delete('/:storeId/closing/:closingId', authMiddleware, async (c) =
     return c.json({ success: false, error: { code: 'NOT_FOUND', message: '마감 기록을 찾을 수 없습니다.' } }, 404)
   }
 
+  // 보정값(adjustmentAmount)만 복원 — 주문별 차감은 건드리지 않음
   const deductions = await db
-    .select({ ingredientId: closingDeductions.ingredientId, usedAmount: closingDeductions.usedAmount })
+    .select({ ingredientId: closingDeductions.ingredientId, adjustmentAmount: closingDeductions.adjustmentAmount })
     .from(closingDeductions)
     .where(eq(closingDeductions.closingId, closingId))
 
   for (const deduction of deductions) {
     await db.update(ingredients)
       .set({
-        currentStock: sql`${ingredients.currentStock} + ${deduction.usedAmount}`,
+        currentStock: sql`${ingredients.currentStock} + ${deduction.adjustmentAmount}`,
         updatedAt: new Date(),
       })
       .where(eq(ingredients.id, deduction.ingredientId))
@@ -401,7 +436,7 @@ closingRouter.openAPIRegistry.registerPath({
   path: '/{storeId}/closing/preview',
   tags: ['Closing'],
   summary: '마감 미리보기',
-  description: '마감 전 이론적 재고 차감량을 미리 확인합니다.',
+  description: '개점 시 재고(역산), 오늘 주문 차감량, 마이너스 재고 항목을 포함한 마감 전 현황을 반환합니다.',
   security: bearerSecurity,
   parameters: [storeIdParam, { name: 'date', in: 'query', required: false, schema: { type: 'string' as const, pattern: '^\\d{4}-\\d{2}-\\d{2}$' }, description: '소급 마감 날짜 (어제까지만 가능)' }],
   responses: { 200: { description: '마감 미리보기 (soldMenus, inventoryDeductions 포함)' }, 400: { description: '소급 마감 범위 초과' }, 401: { description: '인증 필요' } },
@@ -431,7 +466,8 @@ closingRouter.openAPIRegistry.registerPath({
   method: 'post',
   path: '/{storeId}/closing',
   tags: ['Closing'],
-  summary: '마감 확정 (재고 차감)',
+  summary: '마감 확정 (보정값 적용)',
+  description: '사장님이 입력한 실제 사용량과 오늘 주문 차감량의 차이(adjustmentAmount)를 재고에 반영합니다.',
   security: bearerSecurity,
   parameters: [storeIdParam],
   requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', required: ['inventoryDeductions'], properties: { date: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$', description: '소급 마감 날짜 (생략 시 오늘)' }, inventoryDeductions: { type: 'array', items: { type: 'object', required: ['ingredientId', 'actualUsage'], properties: { ingredientId: { type: 'string', format: 'uuid' }, actualUsage: { type: 'number', minimum: 0 } } } } } } } } },
@@ -442,12 +478,11 @@ closingRouter.openAPIRegistry.registerPath({
   method: 'delete',
   path: '/{storeId}/closing/{closingId}',
   tags: ['Closing'],
-  summary: '마감 취소 (재고 복원)',
+  summary: '마감 취소 (보정값만 복원)',
+  description: '마감 시 적용된 보정값(adjustmentAmount)만 복원합니다. 주문별 실시간 차감량은 유지됩니다.',
   security: bearerSecurity,
   parameters: [storeIdParam, closingIdParam],
-  responses: { 200: { description: '마감 취소 및 재고 복원 완료' }, 401: { description: '인증 필요' }, 404: { description: '마감 기록 없음' } },
+  responses: { 200: { description: '마감 취소 및 보정값 복원 완료' }, 401: { description: '인증 필요' }, 404: { description: '마감 기록 없음' } },
 })
 
 export default closingRouter
-
-

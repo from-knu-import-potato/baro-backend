@@ -155,7 +155,9 @@ export const closingDeductions = pgTable('closing_deductions', {
   id: uuid('id').primaryKey().defaultRandom(),
   closingId: uuid('closing_id').references(() => closings.id, { onDelete: 'cascade' }).notNull(),
   ingredientId: uuid('ingredient_id').references(() => ingredients.id).notNull(),
-  usedAmount: numeric('used_amount').notNull(),
+  orderDeductedAmount: numeric('order_deducted_amount').notNull(),
+  actualUsage: numeric('actual_usage').notNull(),
+  adjustmentAmount: numeric('adjustment_amount').notNull(),
   remainingStock: numeric('remaining_stock').notNull(),
 })
 
