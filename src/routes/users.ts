@@ -1,5 +1,5 @@
 ﻿import { OpenAPIHono } from '@hono/zod-openapi'
-import { zValidator } from '@hono/zod-validator'
+import { validate } from '../lib/validator.js'
 import { z } from 'zod'
 import { db } from '../db/index.js'
 import { users, stores, storeMembers } from '../db/schema.js'
@@ -53,7 +53,7 @@ const updateUserSchema = z.object({
   name: z.string().min(1),
 })
 
-usersRouter.patch('/me', zValidator('json', updateUserSchema), async (c) => {
+usersRouter.patch('/me', validate('json', updateUserSchema), async (c) => {
   const userId = c.get('userId')
   const { name } = c.req.valid('json')
 

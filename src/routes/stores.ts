@@ -1,5 +1,5 @@
 ﻿import { OpenAPIHono } from '@hono/zod-openapi'
-import { zValidator } from '@hono/zod-validator'
+import { validate } from '../lib/validator.js'
 import { z } from 'zod'
 import { randomBytes } from 'crypto'
 import { db } from '../db/index.js'
@@ -57,7 +57,7 @@ const setupSchema = z.object({
   })),
 })
 
-storesRouter.post('/setup', authMiddleware, zValidator('json', setupSchema), async (c) => {
+storesRouter.post('/setup', authMiddleware, validate('json', setupSchema), async (c) => {
   const userId = c.get('userId')
   const data = c.req.valid('json')
 
@@ -134,7 +134,7 @@ storesRouter.post('/setup', authMiddleware, zValidator('json', setupSchema), asy
   return c.json({ success: true, data: { storeId: store.id } }, 201)
 })
 
-storesRouter.post('/join', authMiddleware, zValidator('json', z.object({ inviteCode: z.string().min(1) })), async (c) => {
+storesRouter.post('/join', authMiddleware, validate('json', z.object({ inviteCode: z.string().min(1) })), async (c) => {
   const userId = c.get('userId')
   const { inviteCode } = c.req.valid('json')
 
@@ -248,7 +248,7 @@ const updateStoreSchema = z.object({
   tableCount: z.number().int().min(1).max(100).optional(),
 })
 
-storesRouter.patch('/:storeId', authMiddleware, zValidator('json', updateStoreSchema), async (c) => {
+storesRouter.patch('/:storeId', authMiddleware, validate('json', updateStoreSchema), async (c) => {
   const storeId = c.req.param('storeId')
   const data = c.req.valid('json')
 
@@ -301,7 +301,7 @@ const updateOperatingHoursSchema = z.object({
   })).min(1),
 })
 
-storesRouter.patch('/:storeId/operating-hours', authMiddleware, zValidator('json', updateOperatingHoursSchema), async (c) => {
+storesRouter.patch('/:storeId/operating-hours', authMiddleware, validate('json', updateOperatingHoursSchema), async (c) => {
   const storeId = c.req.param('storeId')
   const { operatingHours: hoursData } = c.req.valid('json')
 

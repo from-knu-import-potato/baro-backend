@@ -1,5 +1,5 @@
 ﻿import { OpenAPIHono } from '@hono/zod-openapi'
-import { zValidator } from '@hono/zod-validator'
+import { validate } from '../lib/validator.js'
 import { z } from 'zod'
 import { db } from '../db/index.js'
 import { recipes, menus, ingredients } from '../db/schema.js'
@@ -40,7 +40,7 @@ recipesRouter.get('/:storeId/recipes', authMiddleware, async (c) => {
   return c.json({ success: true, data: allRecipes })
 })
 
-recipesRouter.post('/:storeId/recipes', authMiddleware, zValidator('json', recipeSchema), async (c) => {
+recipesRouter.post('/:storeId/recipes', authMiddleware, validate('json', recipeSchema), async (c) => {
   const body = c.req.valid('json')
   const [created] = await db.insert(recipes).values({
     menuId: body.menuId,
