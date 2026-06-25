@@ -1,5 +1,5 @@
 ﻿import { OpenAPIHono } from '@hono/zod-openapi'
-import { zValidator } from '@hono/zod-validator'
+import { validate } from '../lib/validator.js'
 import { z } from 'zod'
 import { GoogleGenAI } from '@google/genai'
 import { db } from '../db/index.js'
@@ -139,14 +139,14 @@ menusRouter.get('/:storeId/menus', async (c) => {
   return c.json({ success: true, data: list })
 })
 
-menusRouter.post('/:storeId/menus', authMiddleware, zValidator('json', menuSchema), async (c) => {
+menusRouter.post('/:storeId/menus', authMiddleware, validate('json', menuSchema), async (c) => {
   const storeId = c.req.param('storeId')
   const body = c.req.valid('json')
   const [created] = await db.insert(menus).values({ storeId, ...body }).returning()
   return c.json({ success: true, data: created }, 201)
 })
 
-menusRouter.patch('/:storeId/menus/:menuId', authMiddleware, zValidator('json', menuSchema.partial()), async (c) => {
+menusRouter.patch('/:storeId/menus/:menuId', authMiddleware, validate('json', menuSchema.partial()), async (c) => {
   const { storeId, menuId } = c.req.param()
   const body = c.req.valid('json')
   const [updated] = await db.update(menus)
