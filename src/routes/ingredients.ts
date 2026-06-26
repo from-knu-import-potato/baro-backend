@@ -97,7 +97,7 @@ ingredientsRouter.post('/:storeId/ingredients', authMiddleware, validate('json',
       .limit(1)
     const pct = store[0]?.safetyStockPct
     if (pct != null) {
-      safetyStock = Math.round(currentStock * pct) / 100
+      safetyStock = Math.max(0, Math.round(currentStock * pct) / 100)
     }
   }
 
@@ -262,7 +262,7 @@ ingredientsRouter.post('/:storeId/ingredients/inbound', authMiddleware, validate
       .where(eq(ingredients.id, item.ingredientId))
 
     const newStock = Number(ingr.currentStock) + item.amount
-    const newSafetyStock = pct != null ? String(Math.round(newStock * pct) / 100) : undefined
+    const newSafetyStock = pct != null ? String(Math.max(0, Math.round(newStock * pct) / 100)) : undefined
 
     await db
       .update(ingredients)
