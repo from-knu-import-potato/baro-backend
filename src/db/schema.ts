@@ -122,6 +122,7 @@ export const inboundRecords = pgTable('inbound_records', {
   totalSupplyAmount: numeric('total_supply_amount'),
   totalTax: numeric('total_tax'),
   totalAmount: numeric('total_amount'),
+  invoiceImageUrl: text('invoice_image_url'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 })
 
