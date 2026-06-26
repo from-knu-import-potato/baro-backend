@@ -113,7 +113,7 @@ ocrRouter.post("/:storeId/ocr/upload", authMiddleware, async (c) => {
 아래 JSON 구조로 반환해주세요. JSON 외 설명은 금지입니다.
 
 {
-  "isInvoice": "텍스트가 거래명세서·납품서·영수증·청구서이면 true, 아니면 false",
+  "isInvoice": "아래 조건을 하나 이상 충족하면 true, 아니면 false. (1) 품목명·수량·단가·금액이 포함된 표 형태 (2) 공급가액·부가세·합계 등 금액 합산 정보 존재 (3) 납품서·거래명세서·청구서·영수증 등 명시적 문서 유형 표기",
   "metadata": {
     "transactionDate": "YYYY-MM-DD 형식. 거래일자 또는 납품일자. 없으면 null",
     "supplierName": "공급업체(납품업체) 상호명. 없으면 null",
