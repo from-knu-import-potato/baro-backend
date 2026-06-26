@@ -113,6 +113,7 @@ ocrRouter.post("/:storeId/ocr/upload", authMiddleware, async (c) => {
 아래 JSON 구조로 반환해주세요. JSON 외 설명은 금지입니다.
 
 {
+  "isInvoice": "텍스트가 거래명세서·납품서·영수증·청구서이면 true, 아니면 false",
   "metadata": {
     "transactionDate": "YYYY-MM-DD 형식. 거래일자 또는 납품일자. 없으면 null",
     "supplierName": "공급업체(납품업체) 상호명. 없으면 null",
@@ -203,9 +204,10 @@ ${rawText}`;
     .replace(/```json|```/g, "")
     .trim();
 
-  let parsed: { metadata: OcrMetadata; items: Omit<OcrItem, "ingredientId">[] };
+  let parsed: { isInvoice: boolean; metadata: OcrMetadata; items: Omit<OcrItem, "ingredientId">[] };
   try {
     parsed = JSON.parse(geminiText) as {
+      isInvoice: boolean;
       metadata: OcrMetadata;
       items: Omit<OcrItem, "ingredientId">[];
     };
@@ -216,6 +218,16 @@ ${rawText}`;
         error: { code: "PARSE_FAILED", message: "AI 파싱에 실패했습니다." },
       },
       500,
+    );
+  }
+
+  if (!parsed.isInvoice) {
+    return c.json(
+      {
+        success: false,
+        error: { code: "NOT_INVOICE", message: "거래명세서 이미지가 아닙니다." },
+      },
+      422,
     );
   }
 
