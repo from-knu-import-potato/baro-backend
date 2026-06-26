@@ -154,7 +154,7 @@ async function calcPendingStockWarnings(
         warnings.push({
           ingredientName: info.ingredientName,
           required: myRequired,
-          currentStock: info.currentStock,
+          currentStock: effectiveStock,
           unit: info.unit,
         })
       }
