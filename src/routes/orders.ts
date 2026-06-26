@@ -5,9 +5,9 @@ import { db } from '../db/index.js'
 import { orders, orderItems, menus, recipes, ingredients, storeOpens, closings, operatingHours } from '../db/schema.js'
 import type { AppEnv } from '../types/index.js'
 import { authMiddleware } from '../middleware/auth.js'
-import { eq, and, inArray, sql, gte, lt, or } from 'drizzle-orm'
+import { eq, and, inArray, sql } from 'drizzle-orm'
 import { addClient, removeClient, broadcast } from '../lib/sse.js'
-import { toKSTDateStr, getBusinessDateStr } from '../lib/kst.js'
+import { getBusinessDateStr } from '../lib/kst.js'
 
 const ordersRouter = new OpenAPIHono<AppEnv>()
 
@@ -70,6 +70,102 @@ async function adjustStockForOrder(orderId: string, sign: 1 | -1) {
   }
 }
 
+type StockWarning = {
+  ingredientName: string
+  required: number
+  currentStock: number
+  unit: string
+}
+
+/**
+ * pending 주문 전체에 대해 재고 경고 계산.
+ * effectiveStock = currentStock - 다른 pending 주문들의 소요량
+ * → effectiveStock < 이 주문의 소요량이면 경고
+ */
+async function calcPendingStockWarnings(
+  storeId: string,
+): Promise<Map<string, StockWarning[]>> {
+  const pendingOrders = await db.query.orders.findMany({
+    where: and(eq(orders.storeId, storeId), eq(orders.status, 'pending')),
+    with: { items: true },
+  })
+
+  if (pendingOrders.length === 0) return new Map()
+
+  const allMenuIds = [...new Set(pendingOrders.flatMap((o) => o.items.map((i) => i.menuId)))]
+
+  const recipeList = await db
+    .select({
+      menuId: recipes.menuId,
+      ingredientId: recipes.ingredientId,
+      amount: recipes.amount,
+      ingredientName: ingredients.name,
+      currentStock: ingredients.currentStock,
+      unit: ingredients.unit,
+    })
+    .from(recipes)
+    .innerJoin(ingredients, eq(recipes.ingredientId, ingredients.id))
+    .where(inArray(recipes.menuId, allMenuIds))
+
+  // orderId → ingredientId → required
+  const orderRequirements = new Map<string, Map<string, number>>()
+  for (const order of pendingOrders) {
+    const reqMap = new Map<string, number>()
+    for (const recipe of recipeList) {
+      const item = order.items.find((i) => i.menuId === recipe.menuId)
+      if (!item) continue
+      const amount = Number(recipe.amount) * item.quantity
+      reqMap.set(recipe.ingredientId, (reqMap.get(recipe.ingredientId) ?? 0) + amount)
+    }
+    orderRequirements.set(order.id, reqMap)
+  }
+
+  // ingredientId → { currentStock, ingredientName, unit }
+  const ingredientInfoMap = new Map<string, { currentStock: number; ingredientName: string; unit: string }>()
+  for (const recipe of recipeList) {
+    if (!ingredientInfoMap.has(recipe.ingredientId)) {
+      ingredientInfoMap.set(recipe.ingredientId, {
+        currentStock: Number(recipe.currentStock),
+        ingredientName: recipe.ingredientName,
+        unit: recipe.unit,
+      })
+    }
+  }
+
+  // 각 pending 주문별 경고 계산
+  const result = new Map<string, StockWarning[]>()
+  for (const order of pendingOrders) {
+    const myReqs = orderRequirements.get(order.id) ?? new Map<string, number>()
+    const warnings: StockWarning[] = []
+
+    for (const [ingredientId, myRequired] of myReqs.entries()) {
+      const info = ingredientInfoMap.get(ingredientId)
+      if (!info) continue
+
+      // 다른 pending 주문들의 소요량 합산
+      let othersRequired = 0
+      for (const [otherId, otherReqs] of orderRequirements.entries()) {
+        if (otherId === order.id) continue
+        othersRequired += otherReqs.get(ingredientId) ?? 0
+      }
+
+      const effectiveStock = info.currentStock - othersRequired
+      if (effectiveStock < myRequired) {
+        warnings.push({
+          ingredientName: info.ingredientName,
+          required: myRequired,
+          currentStock: effectiveStock,
+          unit: info.unit,
+        })
+      }
+    }
+
+    result.set(order.id, warnings)
+  }
+
+  return result
+}
+
 // 주문 목록 조회 (사장님)
 ordersRouter.get('/:storeId/orders', authMiddleware, async (c) => {
   const storeId = c.req.param('storeId')
@@ -78,7 +174,15 @@ ordersRouter.get('/:storeId/orders', authMiddleware, async (c) => {
     with: { items: { with: { menu: true } } },
     orderBy: (orders, { desc }) => [desc(orders.createdAt)],
   })
-  return c.json({ success: true, data: list })
+
+  const pendingWarningsMap = await calcPendingStockWarnings(storeId)
+
+  const data = list.map((order) => ({
+    ...order,
+    stockWarnings: order.status === 'pending' ? (pendingWarningsMap.get(order.id) ?? []) : [],
+  }))
+
+  return c.json({ success: true, data })
 })
 
 // 주문 생성 (손님, 인증 불필요)
@@ -141,46 +245,9 @@ ordersRouter.post('/:storeId/orders', validate('json', createOrderSchema), async
     with: { items: { with: { menu: true } } },
   })
 
-  // 재고 부족 경고 계산 (#115)
-  const recipeList = await db
-    .select({
-      menuId: recipes.menuId,
-      ingredientId: recipes.ingredientId,
-      amount: recipes.amount,
-      ingredientName: ingredients.name,
-      currentStock: ingredients.currentStock,
-      unit: ingredients.unit,
-    })
-    .from(recipes)
-    .innerJoin(ingredients, eq(recipes.ingredientId, ingredients.id))
-    .where(inArray(recipes.menuId, menuIds))
-
-  const requiredMap = new Map<string, { ingredientName: string; unit: string; required: number; currentStock: number }>()
-  for (const recipe of recipeList) {
-    const item = items.find((i) => i.menuId === recipe.menuId)
-    if (!item) continue
-    const required = Number(recipe.amount) * item.quantity
-    const existing = requiredMap.get(recipe.ingredientId)
-    if (existing) {
-      existing.required += required
-    } else {
-      requiredMap.set(recipe.ingredientId, {
-        ingredientName: recipe.ingredientName,
-        unit: recipe.unit,
-        required,
-        currentStock: Number(recipe.currentStock),
-      })
-    }
-  }
-
-  const stockWarnings = [...requiredMap.values()]
-    .filter((v) => v.currentStock < v.required)
-    .map((v) => ({
-      ingredientName: v.ingredientName,
-      required: v.required,
-      currentStock: v.currentStock,
-      unit: v.unit,
-    }))
+  // 재고 부족 경고 계산 — pending 주문 전체 기준 (#127)
+  const pendingWarningsMap = await calcPendingStockWarnings(storeId)
+  const stockWarnings = pendingWarningsMap.get(order.id) ?? []
 
   broadcast(storeId, 'new-order', { ...created, stockWarnings })
 
@@ -270,7 +337,7 @@ ordersRouter.openAPIRegistry.registerPath({
   summary: '주문 목록 조회 (사장님)',
   security: bearerSecurity,
   parameters: [storeIdParam],
-  responses: { 200: { description: '주문 목록 (items, menu 포함)' }, 401: { description: '인증 필요' } },
+  responses: { 200: { description: '주문 목록 (items, menu 포함). pending 주문에는 stockWarnings 필드 포함.' }, 401: { description: '인증 필요' } },
 })
 
 ordersRouter.openAPIRegistry.registerPath({
