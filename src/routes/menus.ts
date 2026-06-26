@@ -95,14 +95,19 @@ menusRouter.post('/:storeId/menus/ocr-scan', authMiddleware, async (c) => {
   }
 
   const prompt = `당신은 한국 카페·식당 메뉴판 분석 전문가입니다. 다음은 한국 메뉴판에서 OCR로 추출한 텍스트입니다.
-아래 JSON 배열 구조로 반환해주세요. JSON 외 설명은 금지입니다.
+아래 JSON 구조로 반환해주세요. JSON 외 설명은 금지입니다.
+
+{
+  "isMenu": "아래 조건을 하나 이상 충족하면 true, 아니면 false. (1) 메뉴명과 가격이 나열된 형태 (2) 음식·음료·디저트 등 판매 품목 목록 (3) 메뉴판·가격표 등 명시적 문서 유형 표기",
+  "items": [ { "name": "...", "price": 0, "description": "..." } ]
+}
 
 [규칙]
 1. name: 메뉴명만. 괄호 안 부가 설명·규격 정보 제거. OCR 오인식은 가장 가까운 실제 메뉴명으로 교정.
 2. price: 숫자(원 단위 정수). 가격 표기가 없으면 0. 예) "4,500" → 4500, "4500원" → 4500.
 3. description: 메뉴 설명 문구가 있으면 포함, 없으면 null.
 4. 카테고리 헤더(예: "커피", "음료", "디저트"), 가게 이름·주소·전화번호·영업시간·SNS 등 비메뉴 정보는 제외.
-5. JSON 배열만 반환. 설명 금지.
+5. JSON 외 설명 금지.
 
 텍스트:
 ${rawText}`
@@ -123,14 +128,18 @@ ${rawText}`
     .replace(/```json|```/g, '')
     .trim()
 
-  let items: MenuOcrItem[]
+  let parsed: { isMenu: boolean; items: MenuOcrItem[] }
   try {
-    items = JSON.parse(geminiText) as MenuOcrItem[]
+    parsed = JSON.parse(geminiText) as { isMenu: boolean; items: MenuOcrItem[] }
   } catch {
     return c.json({ success: false, error: { code: 'PARSE_FAILED', message: 'AI 파싱에 실패했습니다.' } }, 500)
   }
 
-  return c.json({ success: true, data: { items, rawText } })
+  if (!parsed.isMenu) {
+    return c.json({ success: false, error: { code: 'NOT_MENU', message: '메뉴판 이미지가 아닙니다.' } }, 422)
+  }
+
+  return c.json({ success: true, data: { items: parsed.items, rawText } })
 })
 
 menusRouter.get('/:storeId/menus', async (c) => {
