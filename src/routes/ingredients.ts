@@ -295,7 +295,7 @@ ingredientsRouter.get('/:storeId/ingredients/inbound', authMiddleware, async (c)
       invoiceImageUrl: inboundRecords.invoiceImageUrl,
       createdAt: inboundRecords.createdAt,
       itemCount: sql<number>`(
-        SELECT COUNT(*)::int FROM inbound_items ii WHERE ii.inbound_record_id = ${inboundRecords.id}
+        SELECT COUNT(*)::int FROM inbound_items ii WHERE ii.inbound_record_id = "inbound_records"."id"
       )`,
     })
     .from(inboundRecords)
