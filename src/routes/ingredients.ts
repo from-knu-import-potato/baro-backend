@@ -29,6 +29,7 @@ const inboundSchema = z.object({
     totalTax: z.number().nullable().optional(),
     totalAmount: z.number().nullable().optional(),
   }).optional(),
+  imageUrl: z.string().url().nullable().optional(),
   items: z.array(z.object({
     ingredientId: z.string().uuid(),
     amount: z.number().positive(),
@@ -210,7 +211,7 @@ ingredientsRouter.delete('/:storeId/ingredients/:id', authMiddleware, async (c) 
 // 입고 처리 (OCR 확정 후 호출)
 ingredientsRouter.post('/:storeId/ingredients/inbound', authMiddleware, validate('json', inboundSchema), async (c) => {
   const storeId = c.req.param('storeId')
-  const { metadata, items } = c.req.valid('json')
+  const { metadata, items, imageUrl } = c.req.valid('json')
 
   // 해당 가게 식자재인지 검증
   const uniqueIngredientIds = [...new Set(items.map((i) => i.ingredientId))]
@@ -234,6 +235,7 @@ ingredientsRouter.post('/:storeId/ingredients/inbound', authMiddleware, validate
     totalSupplyAmount: metadata?.totalSupplyAmount != null ? String(metadata.totalSupplyAmount) : null,
     totalTax: metadata?.totalTax != null ? String(metadata.totalTax) : null,
     totalAmount: metadata?.totalAmount != null ? String(metadata.totalAmount) : null,
+    invoiceImageUrl: imageUrl ?? null,
   }).returning()
 
   await db.insert(inboundItems).values(
@@ -275,6 +277,79 @@ ingredientsRouter.post('/:storeId/ingredients/inbound', authMiddleware, validate
   }
 
   return c.json({ success: true, data: { inboundRecordId: record.id } }, 201)
+})
+
+// 입고 이력 목록 조회
+ingredientsRouter.get('/:storeId/ingredients/inbound', authMiddleware, async (c) => {
+  const storeId = c.req.param('storeId')
+
+  const list = await db
+    .select({
+      id: inboundRecords.id,
+      transactionDate: inboundRecords.transactionDate,
+      supplierName: inboundRecords.supplierName,
+      invoiceNumber: inboundRecords.invoiceNumber,
+      totalSupplyAmount: inboundRecords.totalSupplyAmount,
+      totalTax: inboundRecords.totalTax,
+      totalAmount: inboundRecords.totalAmount,
+      invoiceImageUrl: inboundRecords.invoiceImageUrl,
+      createdAt: inboundRecords.createdAt,
+      itemCount: sql<number>`(
+        SELECT COUNT(*)::int FROM inbound_items ii WHERE ii.inbound_record_id = ${inboundRecords.id}
+      )`,
+    })
+    .from(inboundRecords)
+    .where(eq(inboundRecords.storeId, storeId))
+    .orderBy(desc(inboundRecords.createdAt))
+
+  return c.json({ success: true, data: list })
+})
+
+// 입고 이력 상세 조회
+ingredientsRouter.get('/:storeId/ingredients/inbound/:recordId', authMiddleware, async (c) => {
+  const { storeId, recordId } = c.req.param()
+
+  const [record] = await db
+    .select()
+    .from(inboundRecords)
+    .where(and(eq(inboundRecords.id, recordId), eq(inboundRecords.storeId, storeId)))
+    .limit(1)
+
+  if (!record) {
+    return c.json({ success: false, error: { code: 'NOT_FOUND', message: '입고 기록을 찾을 수 없습니다.' } }, 404)
+  }
+
+  const items = await db
+    .select({
+      id: inboundItems.id,
+      ingredientId: inboundItems.ingredientId,
+      ingredientName: ingredients.name,
+      unit: ingredients.unit,
+      amount: inboundItems.amount,
+      unitPrice: inboundItems.unitPrice,
+      supplyPrice: inboundItems.supplyPrice,
+      expiryDate: inboundItems.expiryDate,
+      memo: inboundItems.memo,
+    })
+    .from(inboundItems)
+    .innerJoin(ingredients, eq(inboundItems.ingredientId, ingredients.id))
+    .where(eq(inboundItems.inboundRecordId, recordId))
+
+  return c.json({
+    success: true,
+    data: {
+      id: record.id,
+      transactionDate: record.transactionDate,
+      supplierName: record.supplierName,
+      invoiceNumber: record.invoiceNumber,
+      totalSupplyAmount: record.totalSupplyAmount,
+      totalTax: record.totalTax,
+      totalAmount: record.totalAmount,
+      invoiceImageUrl: record.invoiceImageUrl,
+      createdAt: record.createdAt,
+      items,
+    },
+  })
 })
 
 const unitConversionUpsertSchema = z.array(z.object({
@@ -410,8 +485,28 @@ ingredientsRouter.openAPIRegistry.registerPath({
   summary: '입고 처리 (OCR 확정 후)',
   security: bearerSecurity,
   parameters: [storeIdParam],
-  requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', required: ['items'], properties: { metadata: { type: 'object', description: '거래 메타데이터' }, items: { type: 'array', items: { type: 'object' }, minItems: 1 } } } } } },
+  requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', required: ['items'], properties: { metadata: { type: 'object', description: '거래 메타데이터' }, imageUrl: { type: 'string', nullable: true, description: 'OCR 업로드 시 반환된 명세서 이미지 URL' }, items: { type: 'array', items: { type: 'object' }, minItems: 1 } } } } } },
   responses: { 201: { description: '입고 처리 완료, inboundRecordId 반환' }, 400: { description: '유효하지 않은 식자재' }, 401: { description: '인증 필요' } },
+})
+
+ingredientsRouter.openAPIRegistry.registerPath({
+  method: 'get',
+  path: '/{storeId}/ingredients/inbound',
+  tags: ['Ingredients'],
+  summary: '입고 이력 목록 조회',
+  security: bearerSecurity,
+  parameters: [storeIdParam],
+  responses: { 200: { description: '입고 이력 목록 (날짜, 공급업체, 총액, 명세서 이미지 URL, 품목 수)' }, 401: { description: '인증 필요' } },
+})
+
+ingredientsRouter.openAPIRegistry.registerPath({
+  method: 'get',
+  path: '/{storeId}/ingredients/inbound/{recordId}',
+  tags: ['Ingredients'],
+  summary: '입고 이력 상세 조회',
+  security: bearerSecurity,
+  parameters: [storeIdParam, { name: 'recordId', in: 'path' as const, required: true, schema: { type: 'string' as const, format: 'uuid' } }],
+  responses: { 200: { description: '입고 상세 (메타데이터 + 품목별 식자재명·수량·단가)' }, 401: { description: '인증 필요' }, 404: { description: '입고 기록 없음' } },
 })
 
 ingredientsRouter.openAPIRegistry.registerPath({

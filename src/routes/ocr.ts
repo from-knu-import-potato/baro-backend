@@ -5,6 +5,7 @@ import type { AppEnv } from "../types/index.js";
 import { authMiddleware } from "../middleware/auth.js";
 import { db } from "../db/index.js";
 import { ingredients } from "../db/schema.js";
+import { supabase } from "../lib/supabase.js";
 
 const ocrRouter = new OpenAPIHono<AppEnv>();
 
@@ -231,6 +232,18 @@ ${rawText}`;
     );
   }
 
+  // 명세서 이미지를 Storage에 저장
+  const ext = file.name.split('.').pop() ?? 'jpg'
+  const imagePath = `${storeId}/${Date.now()}.${ext}`
+  let imageUrl: string | null = null
+  const { error: uploadError } = await supabase.storage
+    .from('invoice-images')
+    .upload(imagePath, Buffer.from(arrayBuffer), { contentType: file.type, upsert: false })
+  if (!uploadError) {
+    const { data: urlData } = supabase.storage.from('invoice-images').getPublicUrl(imagePath)
+    imageUrl = urlData.publicUrl
+  }
+
   const ingredientMap = new Map(storeIngredients.map((i) => [i.name, i.id]));
 
   const items: OcrItem[] = parsed.items.map((item) => {
@@ -284,8 +297,30 @@ ${rawText}`;
     }
   }
 
-  return c.json({ success: true, data: { metadata, items, rawText } });
+  return c.json({ success: true, data: { metadata, items, rawText, imageUrl } });
 });
+
+// 명세서 이미지 삭제 (사용자 취소 시 호출)
+ocrRouter.delete('/:storeId/ocr/invoice-image', authMiddleware, async (c) => {
+  const imageUrl = c.req.query('imageUrl')
+  if (!imageUrl) {
+    return c.json({ success: false, error: { code: 'BAD_REQUEST', message: 'imageUrl이 필요합니다.' } }, 400)
+  }
+
+  const marker = '/invoice-images/'
+  const idx = imageUrl.indexOf(marker)
+  if (idx === -1) {
+    return c.json({ success: false, error: { code: 'BAD_REQUEST', message: '유효하지 않은 이미지 URL입니다.' } }, 400)
+  }
+  const filePath = imageUrl.slice(idx + marker.length)
+
+  const { error } = await supabase.storage.from('invoice-images').remove([filePath])
+  if (error) {
+    return c.json({ success: false, error: { code: 'DELETE_FAILED', message: error.message } }, 500)
+  }
+
+  return c.json({ success: true, data: null })
+})
 
 // OpenAPI registrations
 ocrRouter.openAPIRegistry.registerPath({
