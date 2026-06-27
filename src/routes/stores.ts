@@ -96,6 +96,7 @@ storesRouter.post('/setup', authMiddleware, validate('json', setupSchema), async
         price: m.price,
         description: m.description ?? null,
         imageUrl: m.imageUrl ?? null,
+        isFeatured: m.isFeatured ?? false,
       }))
     ).returning()
     insertedMenus.forEach((menu, i) => {
