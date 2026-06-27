@@ -96,6 +96,7 @@ storesRouter.post('/setup', authMiddleware, validate('json', setupSchema), async
         price: m.price,
         description: m.description ?? null,
         imageUrl: m.imageUrl ?? null,
+        isFeatured: m.isFeatured ?? false,
       }))
     ).returning()
     insertedMenus.forEach((menu, i) => {
@@ -283,7 +284,7 @@ storesRouter.patch('/:storeId', authMiddleware, validate('json', updateStoreSche
   if ('safetyStockPct' in data && data.safetyStockPct != null) {
     await db.update(ingredients)
       .set({
-        safetyStock: sql`ROUND(${ingredients.currentStock} * ${data.safetyStockPct} / 100.0, 2)`,
+        safetyStock: sql`GREATEST(0, ROUND(${ingredients.currentStock} * ${data.safetyStockPct} / 100.0, 2))`,
         updatedAt: new Date(),
       })
       .where(eq(ingredients.storeId, storeId))

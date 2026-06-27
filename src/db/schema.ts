@@ -70,6 +70,7 @@ export const menus = pgTable('menus', {
   description: text('description'),
   imageUrl: text('image_url'),
   isAvailable: boolean('is_available').default(true).notNull(),
+  isFeatured: boolean('is_featured').default(false).notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 })
@@ -122,6 +123,7 @@ export const inboundRecords = pgTable('inbound_records', {
   totalSupplyAmount: numeric('total_supply_amount'),
   totalTax: numeric('total_tax'),
   totalAmount: numeric('total_amount'),
+  invoiceImageUrl: text('invoice_image_url'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 })
 

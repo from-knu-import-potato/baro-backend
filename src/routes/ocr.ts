@@ -5,6 +5,7 @@ import type { AppEnv } from "../types/index.js";
 import { authMiddleware } from "../middleware/auth.js";
 import { db } from "../db/index.js";
 import { ingredients } from "../db/schema.js";
+import { supabase } from "../lib/supabase.js";
 
 const ocrRouter = new OpenAPIHono<AppEnv>();
 
@@ -16,6 +17,7 @@ type OcrItem = {
   purchaseAmount: number;
   amount: number | null;
   unit: "g" | "ml" | "개" | null;
+  spec: string | null;
   unitPrice: number | null;
   supplyPrice: number | null;
   memo: string | null;
@@ -112,6 +114,7 @@ ocrRouter.post("/:storeId/ocr/upload", authMiddleware, async (c) => {
 아래 JSON 구조로 반환해주세요. JSON 외 설명은 금지입니다.
 
 {
+  "isInvoice": "아래 조건을 하나 이상 충족하면 true, 아니면 false. (1) 품목명·수량·단가·금액이 포함된 표 형태 (2) 공급가액·부가세·합계 등 금액 합산 정보 존재 (3) 납품서·거래명세서·청구서·영수증 등 명시적 문서 유형 표기",
   "metadata": {
     "transactionDate": "YYYY-MM-DD 형식. 거래일자 또는 납품일자. 없으면 null",
     "supplierName": "공급업체(납품업체) 상호명. 없으면 null",
@@ -125,15 +128,30 @@ ocrRouter.post("/:storeId/ocr/upload", authMiddleware, async (c) => {
 ${ingredientListText}
 [items 배열 규칙]
 1. name: 괄호·규격(용량·중량·개수 표기 등) 제거하고 순수 품목명만. 예) "바게트빵(185G*5EA)" → "바게트빵", "콜라355ml" → "콜라". 식자재답지 않은 단어는 OCR 오인식으로 판단해 올바른 식자재명으로 교정.
-2. purchaseUnit: 명세서 단위 열에 적힌 문자열을 절대 해석·변환·추측하지 말고 원문 그대로 대문자로 반환. 예) 명세서에 "K"면 반드시 "K", "단"이면 "단", "BOX"면 "BOX". 없으면 "EA".
-3. purchaseAmount: 명세서 수량 열의 숫자 그대로. 상품명 내 용량(예: "콜라355ml"의 "355")은 절대 사용 금지.
+2. purchaseUnit: 아래 우선순위로 추출. 절대 해석·변환 금지, 원문 그대로 대문자로 반환.
+   ① 별도 단위 열이 있으면 → 그 값 그대로. 단, "3통"·"1박스"처럼 수량+단위가 붙어있으면 단위 부분(통, 박스)만 추출
+   ② 단위 열이 없고 품목명·규격 표기(괄호, 슬래시 등)에 단위가 포함되어 있으면 → 단위 부분만 추출
+      예) "탄산수 (박스/20개)" → "BOX", "우유 (박스/10000ml)" → "BOX"
+   ③ 없으면 → "EA"
+3. purchaseAmount: 명세서 수량 열의 숫자만 추출. 수량 열이 "3통"·"2박스"처럼 숫자+단위로 쓰인 경우 숫자만. 상품명 내 용량(예: "콜라355ml"의 "355")은 절대 사용 금지.
+3-1. spec: purchaseUnit이 포장 단위(BOX, CS, BAG, PK, BTL, CAN, SET, K, 봉, 팩, 박스 등)인 경우에만,
+   1구매단위당 내용물 수량·용량을 "숫자+단위" 문자열로 반환. 단위 열·품목명·규격 어디에 있든 찾아서 추출.
+   purchaseUnit이 자동변환 단위(EA, 개, PCS, G, KG, ML, L)이면 항상 null.
+   정보가 없으면 null.
+   ⚠️ 한국어 "개"(낱개·조각 단위)와 그램 "g"를 혼동 금지. "20개"는 반드시 "20개"로, "20g"은 "20g"으로 구분해서 반환.
+   예) "박스/20개" → "20개", "팩/20개" → "20개", "박스/10000ml" → "10000ml", "팩(200ml)" → "200ml"
 4. amount / unit: purchaseUnit에 따라 아래 규칙 적용.
    [자동 변환 가능 — amount·unit 값 있음]
-   - EA, 개, PCS → amount = purchaseAmount 그대로, unit = "개"
+   - EA, 개, PCS → 품목명·규격에 ml·L·g·kg 정보가 없으면: amount = purchaseAmount 그대로, unit = "개"
+                   품목명·규격에 ml·L·g·kg 정보가 있으면: 포장 단위로 처리 → amount = null, unit = null (spec에 해당 정보 기재)
+                   예) "카페시럽(1000ml) | 2개" → amount=null, unit=null, spec:"1000ml"
+                   예) "콜라 | 2개" → amount=2, unit="개", spec:null
    - G → amount = purchaseAmount 그대로, unit = "g"
-   - KG → amount = purchaseAmount × 1000, unit = "g"
+   - KG → 품목명·규격에 실제 중량(g)이 명시된 경우(예: "(KG/1200g)"): 포장 단위로 처리 → amount = null, unit = null, spec = "1200g"
+          명시된 중량 없으면: amount = purchaseAmount × 1000, unit = "g"
    - ML → amount = purchaseAmount 그대로, unit = "ml"
-   - L → amount = purchaseAmount × 1000, unit = "ml"
+   - L → 품목명·규격에 실제 용량(ml)이 명시된 경우(예: "(L/1500ml)"): 포장 단위로 처리 → amount = null, unit = null, spec = "1500ml"
+         명시된 용량 없으면: amount = purchaseAmount × 1000, unit = "ml"
    [포장 단위 — 내용물이 제품마다 달라 자동 변환 불가, amount·unit 을 null로]
    - BOX, CS, BAG, PK, BTL, CAN, SET, K, 봉, 팩, 박스 등 위 목록 외 단위 → amount = null, unit = null
 5. unitPrice:
@@ -152,9 +170,15 @@ ${ingredientListText}
     - 동일 품목이 중복으로 보이는 경우
 
 [예시]
-- "콜라355ml  수량:1  단위:BOX  공급가:19,800" → name:"콜라", purchaseUnit:"BOX", purchaseAmount:1, amount:null, unit:null, unitPrice:19800, supplyPrice:19800, is_warning:false, warningReason:null
-- "설탕  수량:3  단위:KG  단가:2,000" → name:"설탕", purchaseUnit:"KG", purchaseAmount:3, amount:3000, unit:"g", unitPrice:2, supplyPrice:null, is_warning:false, warningReason:null
-- "?사과?  수량:불명  단위:EA  단가:500" → name:"사과", purchaseUnit:"EA", purchaseAmount:0, amount:0, unit:"개", unitPrice:500, supplyPrice:null, is_warning:true, warningReason:"품목명 및 수량 인식 불가"
+- "콜라355ml  수량:1  단위:BOX  공급가:19,800" → name:"콜라", purchaseUnit:"BOX", purchaseAmount:1, amount:null, unit:null, spec:null, unitPrice:19800, supplyPrice:19800, is_warning:false, warningReason:null
+- "헤이즐넛 시럽 (1L x 3통)  수량:3통  단가:7,000" → name:"헤이즐넛 시럽", purchaseUnit:"통", purchaseAmount:3, amount:null, unit:null, spec:"1L", unitPrice:7000, supplyPrice:null, is_warning:false, warningReason:null
+- "멸균 우유 (1L x 12팩)  수량:2박스  단가:26,400" → name:"멸균 우유", purchaseUnit:"BOX", purchaseAmount:2, amount:null, unit:null, spec:"12팩", unitPrice:26400, supplyPrice:null, is_warning:false, warningReason:null
+- "탄산수 (박스/20개)  수량:4  공급가:48,000" → name:"탄산수", purchaseUnit:"BOX", purchaseAmount:4, amount:null, unit:null, spec:"20개", unitPrice:12000, supplyPrice:48000, is_warning:false, warningReason:null
+- "우유 (박스/10000ml)  수량:3  단위:BOX  단가:28,000" → name:"우유", purchaseUnit:"BOX", purchaseAmount:3, amount:null, unit:null, spec:"10000ml", unitPrice:28000, supplyPrice:null, is_warning:false, warningReason:null
+- "카페시럽 (1000ml)  수량:2  단위:EA  단가:6,000" → name:"카페시럽", purchaseUnit:"EA", purchaseAmount:2, amount:null, unit:null, spec:"1000ml", unitPrice:6000, supplyPrice:null, is_warning:false, warningReason:null
+- "설탕  수량:3  단위:KG  단가:2,000" → name:"설탕", purchaseUnit:"KG", purchaseAmount:3, amount:3000, unit:"g", spec:null, unitPrice:2, supplyPrice:null, is_warning:false, warningReason:null
+- "레몬청 (KG/1200g)  수량:2  단가:12,000" → name:"레몬청", purchaseUnit:"KG", purchaseAmount:2, amount:null, unit:null, spec:"1200g", unitPrice:12000, supplyPrice:null, is_warning:false, warningReason:null
+- "?사과?  수량:불명  단위:EA  단가:500" → name:"사과", purchaseUnit:"EA", purchaseAmount:0, amount:0, unit:"개", spec:null, unitPrice:500, supplyPrice:null, is_warning:true, warningReason:"품목명 및 수량 인식 불가"
 
 텍스트:
 ${rawText}`;
@@ -181,9 +205,10 @@ ${rawText}`;
     .replace(/```json|```/g, "")
     .trim();
 
-  let parsed: { metadata: OcrMetadata; items: Omit<OcrItem, "ingredientId">[] };
+  let parsed: { isInvoice: boolean; metadata: OcrMetadata; items: Omit<OcrItem, "ingredientId">[] };
   try {
     parsed = JSON.parse(geminiText) as {
+      isInvoice: boolean;
       metadata: OcrMetadata;
       items: Omit<OcrItem, "ingredientId">[];
     };
@@ -195,6 +220,28 @@ ${rawText}`;
       },
       500,
     );
+  }
+
+  if (!parsed.isInvoice) {
+    return c.json(
+      {
+        success: false,
+        error: { code: "NOT_INVOICE", message: "거래명세서 이미지가 아닙니다." },
+      },
+      422,
+    );
+  }
+
+  // 명세서 이미지를 Storage에 저장
+  const ext = file.name.split('.').pop() ?? 'jpg'
+  const imagePath = `${storeId}/${Date.now()}.${ext}`
+  let imageUrl: string | null = null
+  const { error: uploadError } = await supabase.storage
+    .from('invoice-images')
+    .upload(imagePath, Buffer.from(arrayBuffer), { contentType: file.type, upsert: false })
+  if (!uploadError) {
+    const { data: urlData } = supabase.storage.from('invoice-images').getPublicUrl(imagePath)
+    imageUrl = urlData.publicUrl
   }
 
   const ingredientMap = new Map(storeIngredients.map((i) => [i.name, i.id]));
@@ -250,8 +297,30 @@ ${rawText}`;
     }
   }
 
-  return c.json({ success: true, data: { metadata, items, rawText } });
+  return c.json({ success: true, data: { metadata, items, rawText, imageUrl } });
 });
+
+// 명세서 이미지 삭제 (사용자 취소 시 호출)
+ocrRouter.delete('/:storeId/ocr/invoice-image', authMiddleware, async (c) => {
+  const imageUrl = c.req.query('imageUrl')
+  if (!imageUrl) {
+    return c.json({ success: false, error: { code: 'BAD_REQUEST', message: 'imageUrl이 필요합니다.' } }, 400)
+  }
+
+  const marker = '/invoice-images/'
+  const idx = imageUrl.indexOf(marker)
+  if (idx === -1) {
+    return c.json({ success: false, error: { code: 'BAD_REQUEST', message: '유효하지 않은 이미지 URL입니다.' } }, 400)
+  }
+  const filePath = imageUrl.slice(idx + marker.length)
+
+  const { error } = await supabase.storage.from('invoice-images').remove([filePath])
+  if (error) {
+    return c.json({ success: false, error: { code: 'DELETE_FAILED', message: error.message } }, 500)
+  }
+
+  return c.json({ success: true, data: null })
+})
 
 // OpenAPI registrations
 ocrRouter.openAPIRegistry.registerPath({

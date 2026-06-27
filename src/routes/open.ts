@@ -51,7 +51,7 @@ openRouter.post('/:storeId/open', authMiddleware, validate('json', openSchema), 
 
 // 개점 상태 조회
 // isOpen: true = 오늘 businessDate 기준 open 기록 있음 + closing 기록 없음
-openRouter.get('/:storeId/open/status', authMiddleware, async (c) => {
+openRouter.get('/:storeId/open/status', async (c) => {
   const storeId = c.req.param('storeId')
 
   // 오늘 요일 기준 openTime 조회
@@ -134,10 +134,9 @@ openRouter.openAPIRegistry.registerPath({
   path: '/{storeId}/open/status',
   tags: ['Store Open'],
   summary: '개점 상태 조회',
-  description: '현재 영업 기준 날짜의 개점/마감 상태를 반환합니다.',
-  security: bearerSecurity,
+  description: '현재 영업 기준 날짜의 개점/마감 상태를 반환합니다. 손님 페이지에서 인증 없이 호출 가능합니다.',
   parameters: [storeIdParam],
-  responses: { 200: { description: '개점 상태 (isOpen, businessDate, openedAt)' }, 401: { description: '인증 필요' } },
+  responses: { 200: { description: '개점 상태 (isOpen, businessDate, openedAt)' } },
 })
 
 export default openRouter
