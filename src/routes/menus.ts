@@ -25,6 +25,7 @@ const menuSchema = z.object({
   description: z.string().nullish(),
   imageUrl: z.string().nullish(),
   isAvailable: z.boolean().optional(),
+  isFeatured: z.boolean().optional(),
   categoryId: z.string().uuid().nullable().optional(),
 })
 
@@ -214,7 +215,7 @@ menusRouter.openAPIRegistry.registerPath({
   summary: '메뉴 생성',
   security: bearerSecurity,
   parameters: [storeIdParam],
-  requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', required: ['name', 'price'], properties: { name: { type: 'string' }, price: { type: 'integer', minimum: 0 }, description: { type: 'string', nullable: true }, imageUrl: { type: 'string', nullable: true }, isAvailable: { type: 'boolean' }, categoryId: { type: 'string', format: 'uuid', nullable: true } } } } } },
+  requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', required: ['name', 'price'], properties: { name: { type: 'string' }, price: { type: 'integer', minimum: 0 }, description: { type: 'string', nullable: true }, imageUrl: { type: 'string', nullable: true }, isAvailable: { type: 'boolean' }, isFeatured: { type: 'boolean' }, categoryId: { type: 'string', format: 'uuid', nullable: true } } } } } },
   responses: { 201: { description: '생성된 메뉴' }, 401: { description: '인증 필요' } },
 })
 

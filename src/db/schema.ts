@@ -70,6 +70,7 @@ export const menus = pgTable('menus', {
   description: text('description'),
   imageUrl: text('image_url'),
   isAvailable: boolean('is_available').default(true).notNull(),
+  isFeatured: boolean('is_featured').default(false).notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 })
