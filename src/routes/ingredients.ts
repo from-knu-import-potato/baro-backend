@@ -131,44 +131,21 @@ ingredientsRouter.patch('/:storeId/ingredients/:id', authMiddleware, validate('j
 
   if (!updated) return c.json({ success: false, error: { code: 'NOT_FOUND', message: '식자재를 찾을 수 없습니다.' } }, 404)
 
-  // 입고날짜 또는 유통기한 수정 요청이 있는 경우
+  // 입고날짜 또는 유통기한 수정 요청이 있는 경우 — 항상 새 입고 이력 생성
   if (body.lastInboundDate !== undefined || body.nearestExpiryDate !== undefined) {
-    const [latestItem] = await db
-      .select({ itemId: inboundItems.id, recordId: inboundRecords.id })
-      .from(inboundItems)
-      .innerJoin(inboundRecords, eq(inboundItems.inboundRecordId, inboundRecords.id))
-      .where(eq(inboundItems.ingredientId, id))
-      .orderBy(desc(inboundRecords.createdAt))
-      .limit(1)
-
-    if (latestItem) {
-      // 기존 입고 기록 업데이트
-      if (body.lastInboundDate) {
-        await db.update(inboundRecords)
-          .set({ createdAt: new Date(body.lastInboundDate) })
-          .where(eq(inboundRecords.id, latestItem.recordId))
-      }
-      if (body.nearestExpiryDate !== undefined) {
-        await db.update(inboundItems)
-          .set({ expiryDate: body.nearestExpiryDate })
-          .where(eq(inboundItems.id, latestItem.itemId))
-      }
-    } else {
-      // 입고 이력이 없으면 새로 생성
-      const [newRecord] = await db.insert(inboundRecords)
-        .values({
-          storeId,
-          createdAt: body.lastInboundDate ? new Date(body.lastInboundDate) : new Date(),
-        })
-        .returning()
-
-      await db.insert(inboundItems).values({
-        inboundRecordId: newRecord.id,
-        ingredientId: id,
-        amount: updated.currentStock,
-        expiryDate: body.nearestExpiryDate ?? null,
+    const [newRecord] = await db.insert(inboundRecords)
+      .values({
+        storeId,
+        createdAt: body.lastInboundDate ? new Date(body.lastInboundDate) : new Date(),
       })
-    }
+      .returning()
+
+    await db.insert(inboundItems).values({
+      inboundRecordId: newRecord.id,
+      ingredientId: id,
+      amount: updated.currentStock,
+      expiryDate: body.nearestExpiryDate ?? null,
+    })
   }
 
   return c.json({ success: true, data: updated })

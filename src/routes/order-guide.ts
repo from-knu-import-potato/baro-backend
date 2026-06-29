@@ -22,7 +22,7 @@ const orderGuideRouter = new OpenAPIHono<AppEnv>()
 
 const genai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! })
 
-type OrderGuideStatus = 'critical' | 'warning' | 'expiry'
+type OrderGuideStatus = 'critical' | 'warning' | 'expiry' | 'recommend'
 
 type OrderGuideItem = {
   ingredientId: string
@@ -573,14 +573,14 @@ ${contextBlocks}
       : null
     const isNearExpiry = daysUntilExpiry !== null && daysUntilExpiry <= 5
 
+    const recommendedOrderAmount = ai?.recommendedOrderAmount ?? calcRecommendedAmount(current, safety)
+
     let status: OrderGuideStatus
-    if (isNearExpiry && current >= safety) {
-      status = 'expiry'
+    if (isNearExpiry) {
+      status = recommendedOrderAmount > 0 ? 'expiry' : 'recommend'
     } else {
       status = calcStatus(current, safety)
     }
-
-    const recommendedOrderAmount = ai?.recommendedOrderAmount ?? calcRecommendedAmount(current, safety)
     return {
       ingredientId: ing.id,
       ingredientName: ing.name,
