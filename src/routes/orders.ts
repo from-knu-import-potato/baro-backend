@@ -5,9 +5,9 @@ import { db } from '../db/index.js'
 import { orders, orderItems, menus, recipes, ingredients, storeOpens, closings, operatingHours } from '../db/schema.js'
 import type { AppEnv } from '../types/index.js'
 import { authMiddleware } from '../middleware/auth.js'
-import { eq, and, inArray, sql } from 'drizzle-orm'
+import { eq, and, inArray, sql, gte, lt } from 'drizzle-orm'
 import { addClient, removeClient, broadcast } from '../lib/sse.js'
-import { getBusinessDateStr } from '../lib/kst.js'
+import { getBusinessDateStr, getKSTDateRange } from '../lib/kst.js'
 
 const ordersRouter = new OpenAPIHono<AppEnv>()
 
@@ -85,8 +85,17 @@ type StockWarning = {
 async function calcPendingStockWarnings(
   storeId: string,
 ): Promise<Map<string, StockWarning[]>> {
+  const openTime = await getTodayOpenTime(storeId)
+  const businessDate = getBusinessDateStr(openTime)
+  const { start, end } = getKSTDateRange(businessDate)
+
   const pendingOrders = await db.query.orders.findMany({
-    where: and(eq(orders.storeId, storeId), eq(orders.status, 'pending')),
+    where: and(
+      eq(orders.storeId, storeId),
+      eq(orders.status, 'pending'),
+      gte(orders.createdAt, start),
+      lt(orders.createdAt, end),
+    ),
     with: { items: true },
   })
 
